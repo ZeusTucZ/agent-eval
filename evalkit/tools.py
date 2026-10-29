@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -25,11 +26,21 @@ class ToolRegistry:
     def __init__(self, tools: list[Tool]):
         self.tools = {tool.name: tool for tool in tools}
 
-    def call(self, name: str, arguments: dict[str, Any], tracer: Tracer) -> Any:
+    def call(self, name: str, arguments: dict[str, Any] | str, tracer: Tracer) -> Any:
+        """`arguments` is a dict, or JSON text as OpenAI-style APIs send it."""
         with tracer.span(kind="tool", name=name):
             tool = self.tools.get(name)
             if tool is None:
                 raise UnknownToolError(f"no tool named {name!r}")
+
+            # Parsed inside the span so malformed JSON counts as invalid arguments.
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments) if arguments.strip() else {}
+                except json.JSONDecodeError as error:
+                    raise ToolArgumentError(f"arguments are not valid JSON: {error}") from error
+                if not isinstance(arguments, dict):
+                    raise ToolArgumentError("arguments must be a JSON object")
 
             try:
                 parsed = tool.arguments.model_validate(arguments)
@@ -38,7 +49,15 @@ class ToolRegistry:
 
             return tool.function(**parsed.model_dump())
 
-# --- The tools the real agent can use ---
+# --- The tools the real agents can use ---
+
+# Shared by every real agent, so a model comparison changes only the model.
+SYSTEM_PROMPT = (
+    "You answer questions using the tools provided. "
+    "Always use a tool when one can answer the question; do not rely on memory. "
+    "Reply with only the final answer: no explanation, no units, no thousands separators. "
+    "If the tools cannot answer the question, reply exactly: unknown"
+)
 
 class CalculatorArguments(BaseModel):
     a: float

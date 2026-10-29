@@ -7,22 +7,9 @@ from google.genai import errors, types
 
 from evalkit.models import EvaluationCase
 from evalkit.retry import RateLimiter, RetryPolicy, call_llm_with_retries
-from evalkit.runner import AgentFailure
-from evalkit.tools import DEFAULT_TOOLS, ToolRegistry
+from evalkit.runner import MaxStepsExceeded, QuotaExhausted
+from evalkit.tools import DEFAULT_TOOLS, SYSTEM_PROMPT, ToolRegistry
 from evalkit.tracer import Tracer
-
-SYSTEM_PROMPT = (
-    "You answer questions using the tools provided. "
-    "Always use a tool when one can answer the question; do not rely on memory. "
-    "Reply with only the final answer: no explanation, no units, no thousands separators. "
-    "If the tools cannot answer the question, reply exactly: unknown"
-)
-
-class MaxStepsExceeded(AgentFailure):
-    failure_type = "max_steps_exceeded"
-
-class QuotaExhausted(AgentFailure):
-    failure_type = "quota_exhausted"
 
 def _error_details(error: errors.APIError) -> list[dict[str, Any]]:
     if not isinstance(error.details, dict):

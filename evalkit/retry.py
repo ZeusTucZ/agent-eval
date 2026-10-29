@@ -24,7 +24,7 @@ class RetryPolicy:
     max_delay_s: float = 30.0
     jitter: bool = True
     # Reasons that clear up by themselves. Others, e.g. "quota_exhausted", fail straight away.
-    retry_on: tuple[str, ...] = ("rate_limit", "server_error")
+    retry_on: tuple[str, ...] = ("rate_limit", "server_error", "connection_error")
 
     def delay(self, retry: int, random: Random) -> float:
         """Exponential backoff: base, 2x base, 4x base... capped at max_delay_s.

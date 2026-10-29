@@ -8,6 +8,12 @@ class AgentFailure(Exception):
     """Raised by an agent for failures that don't belong to any one step, e.g. too many steps."""
     failure_type = "agent_error"
 
+class MaxStepsExceeded(AgentFailure):
+    failure_type = "max_steps_exceeded"
+
+class QuotaExhausted(AgentFailure):
+    failure_type = "quota_exhausted"
+
 class Agent(Protocol):
     async def run(self, case: EvaluationCase, attempt: int, tracer: Tracer) -> str: ...
 
