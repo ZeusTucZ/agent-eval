@@ -16,9 +16,9 @@ def failure_rate(trials: list[Trial], failure_type: str) -> float:
     count = sum(trial.failure_type == failure_type for trial in trials)
     return count / len(trials)
 
-def latency_percentiles(trials: list[Trial]) -> dict[str, float]:
-    """p50/p95 of trial duration in milliseconds."""
-    durations = [trial.duration_ms for trial in trials]
+def latency_percentiles(trials: list[Trial], working_only: bool = False) -> dict[str, float]:
+    """p50/p95 of trial duration in milliseconds; working_only leaves out time spent waiting."""
+    durations = [trial.working_ms if working_only else trial.duration_ms for trial in trials]
     if len(durations) < 2:
         raise ValueError("need at least 2 trials to compute percentiles")
 
@@ -56,6 +56,7 @@ def summarize(experiment: Experiment, trials: list[Trial], scores: list[Score]) 
     successes = sum(score.value == 1.0 for score in exact_match_scores)
     cost = total_cost(trials, experiment.prices)
     latency = latency_percentiles(trials)
+    working = latency_percentiles(trials, working_only=True)
     failures = Counter(trial.failure_type for trial in trials if trial.failure_type)
     retries = retry_reasons(trials)
 
@@ -67,7 +68,8 @@ def summarize(experiment: Experiment, trials: list[Trial], scores: list[Score]) 
         f"Experiment {experiment.id}: {experiment.name}   config v={experiment.config.version}   {len(trials)} trials",
         f"Model:            {experiment.config.model}   dataset: {experiment.dataset_name}",
         f"Pass rate:        {mean_score(exact_match_scores):.1%}",
-        f"Latency p50/p95:  {latency['p50']:.0f}ms / {latency['p95']:.0f}ms",
+        f"Latency p50/p95:  {latency['p50']:.0f}ms / {latency['p95']:.0f}ms total,"
+        f" {working['p50']:.0f}ms / {working['p95']:.0f}ms excluding waits",
         "Tool calls:",
         "  " + _rate_line("right tool", _scores_named(scores, "tool_selection")),
         "  " + _rate_line("valid arguments", _scores_named(scores, "tool_arguments_valid")),

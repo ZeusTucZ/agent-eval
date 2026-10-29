@@ -36,7 +36,12 @@ def build_gemini(args) -> tuple[Agent, AgentConfig]:
     if not os.environ.get("GEMINI_API_KEY"):
         raise SystemExit("Set the GEMINI_API_KEY environment variable first (get a key at aistudio.google.com).")
 
-    agent = GeminiAgent(model=args.model, max_steps=args.max_steps, temperature=args.temperature)
+    agent = GeminiAgent(
+        model=args.model,
+        max_steps=args.max_steps,
+        temperature=args.temperature,
+        requests_per_minute=args.rpm or None,
+    )
     config = AgentConfig(
         model=args.model,
         prompt=agent.system_prompt,
@@ -45,6 +50,7 @@ def build_gemini(args) -> tuple[Agent, AgentConfig]:
             "temperature": agent.temperature,
             "tools": sorted(agent.tools.tools),
             "retry_policy": asdict(agent.retry_policy),
+            "requests_per_minute": agent.requests_per_minute,
         },
     )
     return agent, config
@@ -77,6 +83,8 @@ def main() -> None:
     gemini = parser.add_argument_group("gemini agent")
     gemini.add_argument("--max-steps", type=int, default=5)
     gemini.add_argument("--temperature", type=float, default=0.0)
+    gemini.add_argument("--rpm", type=int, default=8,
+                        help="requests per minute to stay under (default 8; check your quota in AI Studio; 0 = no limit)")
     args = parser.parse_args()
 
     is_gemini = args.agent == "gemini"

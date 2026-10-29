@@ -42,6 +42,11 @@ class Trial(BaseModel):
             return 0.0
         return (max(span.end for span in self.spans) - min(span.start for span in self.spans)) / 1_000_000
 
+    @property
+    def working_ms(self) -> float:
+        """Time inside spans only: duration minus waiting for retries or the rate limiter."""
+        return sum(span.duration_ms for span in self.spans)
+
 class Score(BaseModel):
     trial_id: int
     scorer: str

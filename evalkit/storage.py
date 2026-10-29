@@ -116,6 +116,15 @@ def save_experiment(
 
     return experiment_id
 
+def replace_scores(conn: sqlite3.Connection, experiment_id: int, scores: list[Score]) -> None:
+    """Swap in new scores for stored trials, e.g. after fixing a scorer. The trials stay as they were."""
+    with conn:
+        conn.execute("DELETE FROM scores WHERE experiment_id = ?", (experiment_id,))
+        conn.executemany(
+            "INSERT INTO scores VALUES (?, ?, ?, ?, ?)",
+            [(experiment_id, s.trial_id, s.scorer, s.value, s.reasoning) for s in scores],
+        )
+
 def load_experiment(conn: sqlite3.Connection, experiment_id: int) -> Experiment:
     row = conn.execute("SELECT * FROM experiments WHERE id = ?", (experiment_id,)).fetchone()
     if row is None:

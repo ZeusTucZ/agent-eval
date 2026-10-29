@@ -30,9 +30,16 @@ ARGUMENT_ERRORS = {"UnknownToolError", "ToolArgumentError"}
 def _tool_spans(trial: Trial) -> list[Span]:
     return [span for span in trial.spans if span.kind == "tool"]
 
+def _model_responded(trial: Trial) -> bool:
+    return any(span.kind == "llm" and span.status == "success" for span in trial.spans)
+
 def tool_selection(case: EvaluationCase, trial: Trial) -> Score | None:
     """Rung 1: did the agent call the tool this case needs?"""
     if case.expected_tool is None:
+        return None
+    # If every request failed (e.g. rate limits), the model never chose anything, so there
+    # is no choice to judge. Scoring it 0 would blame the model for an infrastructure failure.
+    if not _model_responded(trial):
         return None
 
     called = [span.name for span in _tool_spans(trial)]

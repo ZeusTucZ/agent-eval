@@ -6,7 +6,7 @@ from google import genai
 from google.genai import errors, types
 
 from evalkit.models import EvaluationCase
-from evalkit.retry import RetryPolicy, call_llm_with_retries
+from evalkit.retry import RateLimiter, RetryPolicy, call_llm_with_retries
 from evalkit.runner import AgentFailure
 from evalkit.tools import DEFAULT_TOOLS, ToolRegistry
 from evalkit.tracer import Tracer
@@ -29,6 +29,20 @@ def classify_gemini_error(error: BaseException) -> str | None:
             return "server_error"
     return None
 
+def gemini_retry_after(error: BaseException) -> float | None:
+    """Gemini's 429s include a RetryInfo detail such as {"retryDelay": "37s"}."""
+    if not isinstance(error, errors.APIError) or not isinstance(error.details, dict):
+        return None
+
+    for detail in error.details.get("error", {}).get("details", []):
+        if detail.get("@type", "").endswith("google.rpc.RetryInfo"):
+            delay = str(detail.get("retryDelay", ""))
+            try:
+                return float(delay.removesuffix("s"))
+            except ValueError:
+                return None
+    return None
+
 class GeminiAgent:
     """A real agent loop: model -> tool calls -> model -> ... -> final answer."""
 
@@ -40,6 +54,7 @@ class GeminiAgent:
         max_steps: int = 5,
         temperature: float = 0.0,
         retry_policy: RetryPolicy | None = None,
+        requests_per_minute: int | None = None,  # set to your quota to avoid most 429s
         client: Any = None,  # tests pass a fake client; otherwise one is built from GEMINI_API_KEY
     ):
         self.model = model
@@ -48,6 +63,8 @@ class GeminiAgent:
         self.max_steps = max_steps
         self.temperature = temperature
         self.retry_policy = retry_policy or RetryPolicy(max_retries=5, base_delay_s=2.0, max_delay_s=60.0)
+        self.requests_per_minute = requests_per_minute
+        self.rate_limiter = RateLimiter(requests_per_minute) if requests_per_minute else None
         self.client = client or genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
     def _generation_config(self) -> types.GenerateContentConfig:
@@ -86,6 +103,7 @@ class GeminiAgent:
         for _ in range(self.max_steps):
             response = await call_llm_with_retries(
                 tracer, self.model, generate, self.retry_policy, classify_gemini_error, random,
+                retry_after=gemini_retry_after, rate_limiter=self.rate_limiter,
             )
 
             function_calls = response.function_calls or []

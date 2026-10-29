@@ -11,6 +11,14 @@ def arithmetic_cases(count: int) -> list[EvaluationCase]:
         for index in range(1, count + 1)
     ]
 
+def dataset_by_name(name: str) -> list[EvaluationCase]:
+    """Rebuild a dataset from the name stored with an experiment, e.g. "mixed" or "arithmetic-100"."""
+    if name == "mixed":
+        return mixed_cases()
+    if name.startswith("arithmetic-"):
+        return arithmetic_cases(int(name.removeprefix("arithmetic-")))
+    raise ValueError(f"unknown dataset {name!r}")
+
 def mixed_cases() -> list[EvaluationCase]:
     """A small dataset for real models: calculations too big to do reliably in your head,
     capital-city questions a model could answer from memory (does it use the tool anyway?),
