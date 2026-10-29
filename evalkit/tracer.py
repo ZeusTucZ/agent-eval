@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from time import perf_counter_ns
 
-from datasets.models import Span
+from evalkit.models import Span
 
 class Tracer:
     def __init__(self, trial_id: int):
