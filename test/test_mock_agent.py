@@ -54,7 +54,7 @@ def test_llm_span_records_tokens():
 def test_latency_percentiles_match_injected():
     # Uniform(100, 300) ms -> p50 ~200 ms, p95 ~290 ms. The range is wide because
     # asyncio timers on Windows are only accurate to about 15 ms.
-    config = FaultConfig(tool_error_rate=0.0, hallucination_rate=0.0, latency_ms=(100, 300))
+    config = FaultConfig(tool_error_rate=0.0, rate_limit_rate=0.0, hallucination_rate=0.0, latency_ms=(100, 300))
     trials = run(config, dataset_of_500_cases[:200], attempts=1)
 
     percentiles = latency_percentiles(trials)

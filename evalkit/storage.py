@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS spans (
     error_type    TEXT,
     input_tokens  INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
+    retry         INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (experiment_id, trial_id, position),
     FOREIGN KEY (experiment_id, trial_id) REFERENCES trials(experiment_id, trial_id)
 );
@@ -60,7 +61,15 @@ def connect(path: str | Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Bring databases created by older versions up to date. CREATE TABLE IF NOT EXISTS skips existing tables."""
+    span_columns = {row["name"] for row in conn.execute("PRAGMA table_info(spans)")}
+    if "retry" not in span_columns:  # added in Phase 2
+        with conn:
+            conn.execute("ALTER TABLE spans ADD COLUMN retry INTEGER NOT NULL DEFAULT 0")
 
 def save_experiment(
     conn: sqlite3.Connection,
@@ -90,10 +99,12 @@ def save_experiment(
             [(experiment_id, t.id, t.case_id, t.attempt, t.output, t.failure_type) for t in trials],
         )
         conn.executemany(
-            "INSERT INTO spans VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO spans (experiment_id, trial_id, position, kind, name, start_ns, end_ns,"
+            " status, error_type, input_tokens, output_tokens, retry)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (experiment_id, t.id, position, s.kind, s.name, s.start, s.end,
-                 s.status, s.error_type, s.input_tokens, s.output_tokens)
+                 s.status, s.error_type, s.input_tokens, s.output_tokens, s.retry)
                 for t in trials
                 for position, s in enumerate(t.spans)
             ],
@@ -135,6 +146,7 @@ def load_trials(conn: sqlite3.Connection, experiment_id: int) -> list[Trial]:
             error_type=row["error_type"],
             input_tokens=row["input_tokens"],
             output_tokens=row["output_tokens"],
+            retry=row["retry"],
         ))
 
     return [

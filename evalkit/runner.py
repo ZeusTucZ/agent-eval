@@ -4,6 +4,10 @@ from typing import Protocol
 from evalkit.models import EvaluationCase, Trial
 from evalkit.tracer import Tracer
 
+class AgentFailure(Exception):
+    """Raised by an agent for failures that don't belong to any one step, e.g. too many steps."""
+    failure_type = "agent_error"
+
 class Agent(Protocol):
     async def run(self, case: EvaluationCase, attempt: int, tracer: Tracer) -> str: ...
 
@@ -27,6 +31,8 @@ async def run_experiment(
                 output = await asyncio.wait_for(agent.run(case, attempt, tracer), timeout=timeout_s)
             except TimeoutError:
                 failure_type = "timeout"
+            except AgentFailure as error:
+                failure_type = error.failure_type
             except Exception:
                 failure_type = _failure_type(tracer)
 

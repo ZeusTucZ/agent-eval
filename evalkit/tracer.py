@@ -29,7 +29,8 @@ class Tracer:
         # asyncio.CancelledError, which is not an Exception subclass.
         except BaseException as error:
             span.status = "error"
-            span.error_type = type(error).__name__
+            # Code inside the span may already have set a more precise label, e.g. "rate_limit".
+            span.error_type = span.error_type or type(error).__name__
             raise
         else:
             span.status = "success"
