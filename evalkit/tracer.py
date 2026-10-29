@@ -25,7 +25,9 @@ class Tracer:
 
         try:
             yield span
-        except Exception as error:
+        # BaseException, not Exception: a timeout cancels the step with
+        # asyncio.CancelledError, which is not an Exception subclass.
+        except BaseException as error:
             span.status = "error"
             span.error_type = type(error).__name__
             raise
@@ -34,4 +36,3 @@ class Tracer:
         finally:
             span.end = perf_counter_ns()
             self.spans.append(span)
-

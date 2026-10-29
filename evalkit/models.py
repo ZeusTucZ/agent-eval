@@ -1,3 +1,6 @@
+import hashlib
+import json
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel
@@ -11,7 +14,7 @@ class EvaluationCase(BaseModel):
 class Span(BaseModel):
     trial_id: int
     kind: Literal["llm", "tool"]
-    name: str
+    name: str  # for llm spans: the model name, used to look up its price
     start: int
     end: int
     status: Literal["running", "success", "error"]
@@ -40,3 +43,28 @@ class Score(BaseModel):
     scorer: str
     value: float
     reasoning: str | None = None
+
+class Price(BaseModel):
+    """Dollars per million tokens."""
+    input_per_million: float
+    output_per_million: float
+
+class AgentConfig(BaseModel):
+    model: str
+    prompt: str
+    params: dict[str, str | int | float | list[int]] = {}
+
+    @property
+    def version(self) -> str:
+        """Content hash: any change to the config gives a new version."""
+        content = json.dumps(self.model_dump(), sort_keys=True)
+        return hashlib.sha256(content.encode()).hexdigest()[:12]
+
+class Experiment(BaseModel):
+    id: int | None = None  # assigned by storage
+    name: str
+    dataset_name: str
+    config: AgentConfig
+    attempts: int
+    prices: dict[str, Price]  # snapshot at run time, so later price changes don't rewrite history
+    created_at: datetime
