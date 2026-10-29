@@ -3,6 +3,8 @@ from time import perf_counter_ns
 
 from evalkit.models import Span
 
+MAX_ERROR_MESSAGE = 1000  # enough to read the cause; API errors can be much longer
+
 class Tracer:
     def __init__(self, trial_id: int):
         self.trial_id = trial_id
@@ -31,6 +33,7 @@ class Tracer:
             span.status = "error"
             # Code inside the span may already have set a more precise label, e.g. "rate_limit".
             span.error_type = span.error_type or type(error).__name__
+            span.error_message = str(error)[:MAX_ERROR_MESSAGE] or None
             raise
         else:
             span.status = "success"

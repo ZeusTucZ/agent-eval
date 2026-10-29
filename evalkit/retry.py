@@ -10,7 +10,8 @@ from evalkit.tracer import Tracer
 
 T = TypeVar("T")
 
-# Turns an exception into a retry reason such as "rate_limit", or None if retrying won't help.
+# Labels an exception with a reason such as "rate_limit", or None if it isn't one we know.
+# Whether that reason is worth retrying is up to RetryPolicy.retry_on.
 Classifier = Callable[[BaseException], str | None]
 
 # Reads how long the server asked us to wait, if it said (e.g. Gemini's retryDelay).
@@ -22,6 +23,8 @@ class RetryPolicy:
     base_delay_s: float = 1.0
     max_delay_s: float = 30.0
     jitter: bool = True
+    # Reasons that clear up by themselves. Others, e.g. "quota_exhausted", fail straight away.
+    retry_on: tuple[str, ...] = ("rate_limit", "server_error")
 
     def delay(self, retry: int, random: Random) -> float:
         """Exponential backoff: base, 2x base, 4x base... capped at max_delay_s.
@@ -99,7 +102,7 @@ async def call_llm_with_retries(
                     raise
             return result
         except Exception as error:
-            if classify(error) is None or retry == policy.max_retries:
+            if classify(error) not in policy.retry_on or retry == policy.max_retries:
                 raise
 
             delay = policy.delay(retry, random)

@@ -19,6 +19,7 @@ class Span(BaseModel):
     end: int
     status: Literal["running", "success", "error"]
     error_type: str | None = None
+    error_message: str | None = None  # the error's text, e.g. which quota a 429 hit
     input_tokens: int = 0
     output_tokens: int = 0
     retry: int = 0  # 0 for a first try; 1, 2... for retries of the same call

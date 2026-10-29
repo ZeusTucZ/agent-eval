@@ -3,8 +3,11 @@ from random import Random
 
 from google.genai import errors
 
-from evalkit.gemini_agent import gemini_retry_after
-from evalkit.models import Span, Trial
+from evalkit.gemini_agent import GeminiAgent, classify_gemini_error, gemini_retry_after
+from evalkit.mock_agent import FaultConfig, MockAgent
+from evalkit.models import EvaluationCase, Span, Trial
+from evalkit.runner import run_experiment
+from evalkit.sample_data import arithmetic_cases
 from evalkit.report import latency_percentiles
 from evalkit.retry import RateLimiter, RetryPolicy, call_llm_with_retries
 from evalkit.tracer import Tracer
@@ -99,3 +102,82 @@ def test_working_time_leaves_out_waits_between_spans():
     assert trial.duration_ms == 5400
     assert trial.working_ms == 400
     assert latency_percentiles([trial, trial], working_only=True)["p50"] == 400
+
+# --- Error messages, daily quotas and timeout labels ---
+
+def quota_error(quota_id: str) -> errors.ClientError:
+    return errors.ClientError(429, {"error": {
+        "code": 429,
+        "message": f"You exceeded your current quota. Quota: {quota_id}",
+        "details": [{
+            "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+            "violations": [{"quotaMetric": "generativelanguage.googleapis.com/generate_content_free_tier_requests",
+                            "quotaId": quota_id}],
+        }],
+    }})
+
+DAILY = "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+PER_MINUTE = "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"
+
+def test_daily_quota_is_told_apart_from_per_minute_limits():
+    assert classify_gemini_error(quota_error(DAILY)) == "quota_exhausted"
+    assert classify_gemini_error(quota_error(PER_MINUTE)) == "rate_limit"
+    assert classify_gemini_error(rate_limited("37s")) == "rate_limit"  # no QuotaFailure detail
+
+def test_spans_keep_the_error_message():
+    tracer = Tracer(1)
+    try:
+        with tracer.span(kind="llm", name="m"):
+            raise ValueError("which quota was hit")
+    except ValueError:
+        pass
+    assert tracer.spans[0].error_message == "which quota was hit"
+
+def test_reasons_outside_retry_on_are_not_retried():
+    calls = 0
+
+    async def call():
+        nonlocal calls
+        calls += 1
+        raise ValueError("daily quota")
+
+    tracer = Tracer(1)
+    try:
+        asyncio.run(call_llm_with_retries(
+            tracer, "m", call, RetryPolicy(base_delay_s=0.0),
+            classify=lambda error: "quota_exhausted", random=Random(0),
+        ))
+    except ValueError:
+        pass
+
+    assert calls == 1
+    assert tracer.spans[0].error_type == "quota_exhausted"
+
+def test_daily_quota_stops_the_experiment_early():
+    from test_gemini_agent import NO_WAIT, fake_client, final_answer
+
+    client = fake_client(quota_error(DAILY), final_answer("never sent"))
+    dataset = [
+        EvaluationCase(id=index, input="What is 1 + 1?", expected_output="2", expected_tool="calculator")
+        for index in range(1, 6)
+    ]
+    trials = asyncio.run(run_experiment(GeminiAgent(client=client, retry_policy=NO_WAIT), dataset, attempts=1))
+
+    assert [trial.failure_type for trial in trials] == ["quota_exhausted"] * 5
+    assert len(client.aio.models.requests) == 1  # one request, then the circuit breaker opened
+    assert DAILY in trials[0].spans[0].error_message
+
+def test_timeout_while_waiting_to_retry_names_the_real_cause():
+    # Every call is rate-limited and the backoff is longer than the timeout, so the
+    # trial runs out of time between attempts, not inside a call.
+    config = FaultConfig(tool_error_rate=0.0, rate_limit_rate=1.0, hallucination_rate=0.0, latency_ms=(0, 0))
+    agent = MockAgent(config, retry_policy=RetryPolicy(base_delay_s=10.0, jitter=False))
+    trials = asyncio.run(run_experiment(agent, arithmetic_cases(2), attempts=1, timeout_s=0.1))
+
+    assert [trial.failure_type for trial in trials] == ["timeout_after_rate_limit"] * 2
+
+def test_a_step_that_hangs_is_still_a_plain_timeout():
+    config = FaultConfig(tool_error_rate=0.0, rate_limit_rate=0.0, hallucination_rate=0.0, hang_rate=1.0, latency_ms=(0, 0))
+    trials = asyncio.run(run_experiment(MockAgent(config), arithmetic_cases(2), attempts=1, timeout_s=0.05))
+
+    assert [trial.failure_type for trial in trials] == ["timeout"] * 2

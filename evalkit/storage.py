@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS spans (
     input_tokens  INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
     retry         INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
     PRIMARY KEY (experiment_id, trial_id, position),
     FOREIGN KEY (experiment_id, trial_id) REFERENCES trials(experiment_id, trial_id)
 );
@@ -67,9 +68,14 @@ def connect(path: str | Path) -> sqlite3.Connection:
 def _migrate(conn: sqlite3.Connection) -> None:
     """Bring databases created by older versions up to date. CREATE TABLE IF NOT EXISTS skips existing tables."""
     span_columns = {row["name"] for row in conn.execute("PRAGMA table_info(spans)")}
-    if "retry" not in span_columns:  # added in Phase 2
-        with conn:
-            conn.execute("ALTER TABLE spans ADD COLUMN retry INTEGER NOT NULL DEFAULT 0")
+    added_columns = {  # column -> definition, in the order they were added
+        "retry": "INTEGER NOT NULL DEFAULT 0",
+        "error_message": "TEXT",
+    }
+    with conn:
+        for column, definition in added_columns.items():
+            if column not in span_columns:
+                conn.execute(f"ALTER TABLE spans ADD COLUMN {column} {definition}")
 
 def save_experiment(
     conn: sqlite3.Connection,
@@ -100,11 +106,11 @@ def save_experiment(
         )
         conn.executemany(
             "INSERT INTO spans (experiment_id, trial_id, position, kind, name, start_ns, end_ns,"
-            " status, error_type, input_tokens, output_tokens, retry)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " status, error_type, input_tokens, output_tokens, retry, error_message)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (experiment_id, t.id, position, s.kind, s.name, s.start, s.end,
-                 s.status, s.error_type, s.input_tokens, s.output_tokens, s.retry)
+                 s.status, s.error_type, s.input_tokens, s.output_tokens, s.retry, s.error_message)
                 for t in trials
                 for position, s in enumerate(t.spans)
             ],
@@ -156,6 +162,7 @@ def load_trials(conn: sqlite3.Connection, experiment_id: int) -> list[Trial]:
             input_tokens=row["input_tokens"],
             output_tokens=row["output_tokens"],
             retry=row["retry"],
+            error_message=row["error_message"],
         ))
 
     return [

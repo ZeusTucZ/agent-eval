@@ -30,7 +30,7 @@ async def run_experiment(
             try:
                 output = await asyncio.wait_for(agent.run(case, attempt, tracer), timeout=timeout_s)
             except TimeoutError:
-                failure_type = "timeout"
+                failure_type = _timeout_type(tracer)
             except AgentFailure as error:
                 failure_type = error.failure_type
             except Exception:
@@ -52,6 +52,18 @@ async def run_experiment(
         run_trial(trial_id, case, attempt)
         for trial_id, (case, attempt) in enumerate(jobs, start=1)
     )))
+
+def _timeout_type(tracer: Tracer) -> str:
+    """Tell a step that hung apart from a trial that ran out of time waiting to retry.
+
+    A step cut off mid-call ends with CancelledError. If the last span failed some other
+    way, the trial was between attempts (e.g. backing off after a 429) when time ran out,
+    and the label says so: "timeout_after_rate_limit" points at the real cause.
+    """
+    last = tracer.spans[-1] if tracer.spans else None
+    if last is None or last.status != "error" or last.error_type == "CancelledError":
+        return "timeout"
+    return f"timeout_after_{last.error_type}"
 
 def _failure_type(tracer: Tracer) -> str:
     """Blame the span that raised, e.g. "tool_error". Errors outside any span are "agent_error"."""

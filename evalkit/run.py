@@ -71,7 +71,7 @@ def main() -> None:
     parser.add_argument("--cases", type=int, default=100, help="size of the arithmetic dataset")
     parser.add_argument("--attempts", type=int, default=3)
     parser.add_argument("--concurrency", type=int, help="default: 20 for mock, 2 for gemini")
-    parser.add_argument("--timeout", type=float, help="seconds per trial; default: 2 for mock, 120 for gemini")
+    parser.add_argument("--timeout", type=float, help="seconds per trial; default: 2 for mock, 360 for gemini")
 
     mock = parser.add_argument_group("mock agent faults")
     mock.add_argument("--tool-error-rate", type=float, default=0.10)
@@ -91,7 +91,9 @@ def main() -> None:
     args.model = args.model or ("gemini-2.5-flash" if is_gemini else "mock-llm")
     args.dataset = args.dataset or ("mixed" if is_gemini else "arithmetic")
     args.concurrency = args.concurrency or (2 if is_gemini else 20)
-    args.timeout = args.timeout or (120.0 if is_gemini else 2.0)
+    # Gemini's timeout must outlast its retry schedule (up to 5 waits of 60 s), or a trial is
+    # cut off mid-retry; that is what happened to experiment 3 with the old 120 s default.
+    args.timeout = args.timeout or (360.0 if is_gemini else 2.0)
 
     # Check the price before spending anything: an unknown model would only fail at report time.
     if args.model not in PRICES:
@@ -120,6 +122,11 @@ def main() -> None:
     experiment_id = storage.save_experiment(storage.connect(args.db), experiment, trials, scores)
 
     print(f"Saved experiment {experiment_id} ({len(trials)} trials) to {args.db}")
+
+    quota_failures = sum(trial.failure_type == "quota_exhausted" for trial in trials)
+    if quota_failures:
+        print(f"WARNING: the daily quota ran out; {quota_failures} trials were not run. "
+              "These results measure the quota, not the model. Re-run after it resets.")
     print(f"View it with: python -m evalkit.report {experiment_id} --db {args.db}")
 
 if __name__ == "__main__":

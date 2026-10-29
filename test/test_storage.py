@@ -82,12 +82,18 @@ def test_failed_save_leaves_nothing_behind(tmp_path):
 def test_databases_from_phase_1_are_migrated(tmp_path):
     path = tmp_path / "old.db"
     old = sqlite3.connect(path)
-    old.executescript(storage.SCHEMA.replace("    retry         INTEGER NOT NULL DEFAULT 0,\n", ""))
+    phase_1_schema = (
+        storage.SCHEMA
+        .replace("    retry         INTEGER NOT NULL DEFAULT 0,\n", "")
+        .replace("    error_message TEXT,\n", "")
+    )
+    assert "retry " not in phase_1_schema and "error_message" not in phase_1_schema
+    old.executescript(phase_1_schema)
     old.close()
 
     conn = storage.connect(path)
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(spans)")}
-    assert "retry" in columns
+    assert {"retry", "error_message"} <= columns
 
     trials, scores = run_and_score()
     experiment_id = storage.save_experiment(conn, make_experiment(), trials, scores)
