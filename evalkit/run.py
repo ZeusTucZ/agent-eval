@@ -7,8 +7,9 @@ from evalkit import storage
 from evalkit.cost import PRICES
 from evalkit.models import AgentConfig, EvaluationCase, Experiment
 from evalkit.runner import Agent, run_experiment
-from evalkit.sample_data import arithmetic_cases, mixed_cases
+from evalkit.sample_data import arithmetic_cases, dataset_by_name, tools_for_dataset
 from evalkit.scorers import score_trials
+from evalkit.tools import ToolRegistry
 
 def build_mock(args) -> tuple[Agent, AgentConfig]:
     from evalkit.mock_agent import FaultConfig, MockAgent
@@ -54,6 +55,7 @@ def build_gemini(args) -> tuple[Agent, AgentConfig]:
     _require_key("GEMINI_API_KEY", "aistudio.google.com")
     agent = GeminiAgent(
         model=args.model,
+        tools=ToolRegistry(tools_for_dataset(args.dataset)),
         max_steps=args.max_steps,
         temperature=args.temperature,
         requests_per_minute=args.rpm or None,
@@ -66,6 +68,7 @@ def build_groq(args) -> tuple[Agent, AgentConfig]:
     _require_key("GROQ_API_KEY", "console.groq.com")
     agent = OpenAICompatibleAgent(
         model=args.model,
+        tools=ToolRegistry(tools_for_dataset(args.dataset)),
         provider="groq",
         max_steps=args.max_steps,
         temperature=args.temperature,
@@ -85,9 +88,9 @@ AGENT_DEFAULTS = {
 }
 
 def load_dataset(args) -> tuple[str, list[EvaluationCase]]:
-    if args.dataset == "mixed":
-        return "mixed", mixed_cases()
-    return f"arithmetic-{args.cases}", arithmetic_cases(args.cases)
+    if args.dataset == "arithmetic":
+        return f"arithmetic-{args.cases}", arithmetic_cases(args.cases)
+    return args.dataset, dataset_by_name(args.dataset)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run an agent over a dataset and save the results.")
@@ -95,7 +98,7 @@ def main() -> None:
     parser.add_argument("--db", default="evalkit.db")
     parser.add_argument("--agent", choices=sorted(BUILDERS), default="mock")
     parser.add_argument("--model", help="default: mock-llm, gemini-2.5-flash or openai/gpt-oss-20b")
-    parser.add_argument("--dataset", choices=["arithmetic", "mixed"],
+    parser.add_argument("--dataset", choices=["arithmetic", "mixed", "hard"],
                         help="default: arithmetic for mock, mixed for real agents")
     parser.add_argument("--cases", type=int, default=100, help="size of the arithmetic dataset")
     parser.add_argument("--attempts", type=int, default=3)
@@ -123,6 +126,9 @@ def main() -> None:
     # Check the price before spending anything: an unknown model would only fail at report time.
     if args.model not in PRICES:
         raise SystemExit(f"No price for {args.model!r}. Add it to PRICES in evalkit/cost.py.")
+
+    if args.agent == "mock" and args.dataset != "arithmetic":
+        raise SystemExit("The mock agent only understands the arithmetic dataset; use --agent groq or gemini.")
 
     agent, config = BUILDERS[args.agent](args)
     dataset_name, dataset = load_dataset(args)

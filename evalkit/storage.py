@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS spans (
     output_tokens INTEGER NOT NULL,
     retry         INTEGER NOT NULL DEFAULT 0,
     error_message TEXT,
+    input_text    TEXT,
+    output_text   TEXT,
     PRIMARY KEY (experiment_id, trial_id, position),
     FOREIGN KEY (experiment_id, trial_id) REFERENCES trials(experiment_id, trial_id)
 );
@@ -71,6 +73,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     added_columns = {  # column -> definition, in the order they were added
         "retry": "INTEGER NOT NULL DEFAULT 0",
         "error_message": "TEXT",
+        "input_text": "TEXT",
+        "output_text": "TEXT",
     }
     with conn:
         for column, definition in added_columns.items():
@@ -106,11 +110,11 @@ def save_experiment(
         )
         conn.executemany(
             "INSERT INTO spans (experiment_id, trial_id, position, kind, name, start_ns, end_ns,"
-            " status, error_type, input_tokens, output_tokens, retry, error_message)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " status, error_type, input_tokens, output_tokens, retry, error_message, input_text, output_text)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (experiment_id, t.id, position, s.kind, s.name, s.start, s.end,
-                 s.status, s.error_type, s.input_tokens, s.output_tokens, s.retry, s.error_message)
+                 s.status, s.error_type, s.input_tokens, s.output_tokens, s.retry, s.error_message, s.input, s.output)
                 for t in trials
                 for position, s in enumerate(t.spans)
             ],
@@ -163,6 +167,8 @@ def load_trials(conn: sqlite3.Connection, experiment_id: int) -> list[Trial]:
             output_tokens=row["output_tokens"],
             retry=row["retry"],
             error_message=row["error_message"],
+            input=row["input_text"],
+            output=row["output_text"],
         ))
 
     return [

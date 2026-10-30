@@ -1,4 +1,25 @@
+import json
+from pathlib import Path
+
 from evalkit.models import EvaluationCase
+from evalkit.tools import DEFAULT_TOOLS, HARD_TOOLS, Tool
+
+DATASETS_DIR = Path(__file__).resolve().parent.parent / "datasets"
+
+def load_jsonl(path: Path) -> list[EvaluationCase]:
+    return [
+        EvaluationCase.model_validate(json.loads(line))
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+def hard_cases() -> list[EvaluationCase]:
+    """About 55 cases in 10 categories, built by scripts/build_hard_dataset.py."""
+    return load_jsonl(DATASETS_DIR / "hard.jsonl")
+
+def tools_for_dataset(name: str) -> list[Tool]:
+    """The hard dataset needs extra tools (and reference data with planted errors and injections)."""
+    return HARD_TOOLS if name == "hard" else DEFAULT_TOOLS
 
 def arithmetic_cases(count: int) -> list[EvaluationCase]:
     return [
@@ -15,6 +36,8 @@ def dataset_by_name(name: str) -> list[EvaluationCase]:
     """Rebuild a dataset from the name stored with an experiment, e.g. "mixed" or "arithmetic-100"."""
     if name == "mixed":
         return mixed_cases()
+    if name == "hard":
+        return hard_cases()
     if name.startswith("arithmetic-"):
         return arithmetic_cases(int(name.removeprefix("arithmetic-")))
     raise ValueError(f"unknown dataset {name!r}")
@@ -58,5 +81,6 @@ def mixed_cases() -> list[EvaluationCase]:
         input="What is the capital of Bhutan?",
         expected_output="unknown",
         expected_tool="lookup_capital",
+        expects_tool_error=True,
     ))
     return cases

@@ -7,7 +7,7 @@ from google.genai import errors, types
 
 from evalkit.models import EvaluationCase
 from evalkit.retry import RateLimiter, RetryPolicy, call_llm_with_retries
-from evalkit.runner import MaxStepsExceeded, QuotaExhausted
+from evalkit.runner import MaxStepsExceeded, OutputTruncated, QuotaExhausted
 from evalkit.tools import DEFAULT_TOOLS, SYSTEM_PROMPT, ToolRegistry
 from evalkit.tracer import Tracer
 
@@ -124,6 +124,9 @@ class GeminiAgent:
                     self.quota_exhausted = True
                     raise QuotaExhausted(str(error)) from error
                 raise
+
+            if response.candidates and response.candidates[0].finish_reason == types.FinishReason.MAX_TOKENS:
+                raise OutputTruncated("the model hit its output-token limit before answering")
 
             function_calls = response.function_calls or []
             if not function_calls:

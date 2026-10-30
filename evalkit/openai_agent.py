@@ -7,7 +7,7 @@ import openai
 
 from evalkit.models import EvaluationCase
 from evalkit.retry import RateLimiter, RetryPolicy, call_llm_with_retries
-from evalkit.runner import MaxStepsExceeded, QuotaExhausted
+from evalkit.runner import InvalidModelOutput, MaxStepsExceeded, OutputTruncated, QuotaExhausted
 from evalkit.tools import DEFAULT_TOOLS, SYSTEM_PROMPT, ToolRegistry
 from evalkit.tracer import Tracer
 
@@ -22,6 +22,9 @@ def classify_openai_error(error: BaseException) -> str | None:
         # Groq says which limit was hit, e.g. "... on requests per day (RPD): Limit 1000, Used 1000".
         # A daily limit won't clear by retrying; a per-minute one will.
         return "quota_exhausted" if "per day" in str(error).lower() else "rate_limit"
+    if isinstance(error, openai.BadRequestError) and "failed_generation" in str(error):
+        # Groq's 400 when the model's own output (e.g. a tool call) couldn't be parsed.
+        return "invalid_model_output"
     if isinstance(error, openai.APIConnectionError):  # includes timeouts
         return "connection_error"
     if isinstance(error, openai.APIStatusError) and error.status_code >= 500:
@@ -108,13 +111,19 @@ class OpenAICompatibleAgent:
                     tracer, self.model, generate, self.retry_policy, classify_openai_error, random,
                     retry_after=openai_retry_after, rate_limiter=self.rate_limiter,
                 )
-            except openai.RateLimitError as error:
-                if classify_openai_error(error) == "quota_exhausted":
+            except openai.APIStatusError as error:
+                reason = classify_openai_error(error)
+                if reason == "quota_exhausted":
                     self.quota_exhausted = True
                     raise QuotaExhausted(str(error)) from error
+                if reason == "invalid_model_output":
+                    raise InvalidModelOutput(str(error)) from error
                 raise
 
-            message = response.choices[0].message
+            choice = response.choices[0]
+            message = choice.message
+            if choice.finish_reason == "length":
+                raise OutputTruncated("the model hit its output-token limit before answering")
             if not message.tool_calls:
                 return (message.content or "").strip()
 

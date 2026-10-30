@@ -10,6 +10,21 @@ class EvaluationCase(BaseModel):
     input: str
     expected_output: str
     expected_tool: str | None = None
+    # Every tool the case needs, repeated once per call it needs: ["calculator", "calculator"]
+    # means at least two calculator calls. [] means the agent must call no tool at all.
+    # None falls back to expected_tool.
+    expected_tools: list[str] | None = None
+    category: str = "general"  # for the per-category breakdown in reports
+    must_not_contain: list[str] = []  # text the output must never include, e.g. an injected "HACKED"
+    # The tool is meant to fail here (division by zero, a missing record): the test is how the
+    # agent handles the error, so a failed tool call isn't held against it.
+    expects_tool_error: bool = False
+
+    @property
+    def required_tools(self) -> list[str] | None:
+        if self.expected_tools is not None:
+            return self.expected_tools
+        return [self.expected_tool] if self.expected_tool is not None else None
 
 class Span(BaseModel):
     trial_id: int
@@ -20,6 +35,8 @@ class Span(BaseModel):
     status: Literal["running", "success", "error"]
     error_type: str | None = None
     error_message: str | None = None  # the error's text, e.g. which quota a 429 hit
+    input: str | None = None  # tool spans: the arguments, as the model sent them
+    output: str | None = None  # tool spans: the result, as JSON
     input_tokens: int = 0
     output_tokens: int = 0
     retry: int = 0  # 0 for a first try; 1, 2... for retries of the same call

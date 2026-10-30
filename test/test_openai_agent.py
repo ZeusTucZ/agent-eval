@@ -136,3 +136,37 @@ def test_the_sdk_does_not_retry_on_its_own():
     agent = OpenAICompatibleAgent(provider="ollama")
     assert agent.client.max_retries == 0
     assert str(agent.client.base_url).startswith("http://localhost:11434")
+
+def test_hitting_the_output_token_limit_is_a_model_failure():
+    truncated = ChatCompletion.model_validate({
+        "id": "chatcmpl-1", "object": "chat.completion", "created": 0, "model": "openai/gpt-oss-20b",
+        "choices": [{"index": 0, "finish_reason": "length", "message": {"role": "assistant", "content": ""}}],
+        "usage": {"prompt_tokens": 200, "completion_tokens": 2048, "total_tokens": 2248},
+    })
+    agent, _ = agent_with(truncated)
+    trials, _ = run(agent)
+
+    # Before, this was an empty answer with no failure at all.
+    assert trials[0].failure_type == "output_truncated"
+    assert trials[0].output is None
+
+def test_unparseable_model_output_is_a_model_failure_and_not_retried():
+    response = httpx2.Response(400, request=httpx2.Request("POST", "https://api.groq.com/openai/v1/chat/completions"))
+    message = "Error code: 400 - Parsing failed. See 'failed_generation' for more details."
+    agent, completions = agent_with(openai.BadRequestError(message, response=response, body=None), final_answer("x"))
+    trials, _ = run(agent)
+
+    assert trials[0].failure_type == "invalid_model_output"  # was "llm_error", which looks like an API fault
+    assert trials[0].spans[0].error_type == "invalid_model_output"
+    assert len(completions.requests) == 1
+
+def test_tool_spans_record_arguments_and_results():
+    agent, _ = agent_with(
+        tool_call("calculator", '{"a": 48213, "operator": "*", "b": 9917}'),
+        final_answer("478128321"),
+    )
+    trials, _ = run(agent)
+
+    tool = trials[0].spans[1]
+    assert json.loads(tool.input) == {"a": 48213, "operator": "*", "b": 9917}
+    assert json.loads(tool.output) == 478128321
