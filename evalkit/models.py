@@ -1,7 +1,7 @@
 import hashlib
 import json
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -19,8 +19,10 @@ class Span(BaseModel):
     end: int
     status: Literal["running", "success", "error"]
     error_type: str | None = None
+    error_message: str | None = None  # the error's text, e.g. which quota a 429 hit
     input_tokens: int = 0
     output_tokens: int = 0
+    retry: int = 0  # 0 for a first try; 1, 2... for retries of the same call
 
     @property
     def duration_ms(self) -> float:
@@ -36,6 +38,14 @@ class Trial(BaseModel):
 
     @property
     def duration_ms(self) -> float:
+        """First span start to last span end, so time spent waiting between retries counts."""
+        if not self.spans:
+            return 0.0
+        return (max(span.end for span in self.spans) - min(span.start for span in self.spans)) / 1_000_000
+
+    @property
+    def working_ms(self) -> float:
+        """Time inside spans only: duration minus waiting for retries or the rate limiter."""
         return sum(span.duration_ms for span in self.spans)
 
 class Score(BaseModel):
@@ -52,7 +62,7 @@ class Price(BaseModel):
 class AgentConfig(BaseModel):
     model: str
     prompt: str
-    params: dict[str, str | int | float | list[int]] = {}
+    params: dict[str, Any] = {}  # anything JSON-serializable
 
     @property
     def version(self) -> str:

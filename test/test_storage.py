@@ -79,6 +79,26 @@ def test_failed_save_leaves_nothing_behind(tmp_path):
     assert conn.execute("SELECT COUNT(*) FROM experiments").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0] == 0
 
+def test_databases_from_phase_1_are_migrated(tmp_path):
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    phase_1_schema = (
+        storage.SCHEMA
+        .replace("    retry         INTEGER NOT NULL DEFAULT 0,\n", "")
+        .replace("    error_message TEXT,\n", "")
+    )
+    assert "retry " not in phase_1_schema and "error_message" not in phase_1_schema
+    old.executescript(phase_1_schema)
+    old.close()
+
+    conn = storage.connect(path)
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(spans)")}
+    assert {"retry", "error_message"} <= columns
+
+    trials, scores = run_and_score()
+    experiment_id = storage.save_experiment(conn, make_experiment(), trials, scores)
+    assert storage.load_trials(conn, experiment_id) == trials
+
 def test_missing_experiment_raises(tmp_path):
     conn = storage.connect(tmp_path / "eval.db")
     with pytest.raises(LookupError):

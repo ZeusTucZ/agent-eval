@@ -28,7 +28,7 @@ def test_results_are_reproducible_regardless_of_concurrency():
     assert outcomes(concurrency=1) == outcomes(concurrency=50)
 
 def test_hanging_trials_time_out():
-    config = FaultConfig(tool_error_rate=0.0, hallucination_rate=0.0, hang_rate=0.10, latency_ms=(0, 0))
+    config = FaultConfig(tool_error_rate=0.0, rate_limit_rate=0.0, hallucination_rate=0.0, hang_rate=0.10, latency_ms=(0, 0))
     trials = asyncio.run(run_experiment(
         MockAgent(config), arithmetic_cases(500), attempts=1, concurrency=100, timeout_s=0.05,
     ))

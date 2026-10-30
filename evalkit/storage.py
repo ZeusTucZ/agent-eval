@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS spans (
     error_type    TEXT,
     input_tokens  INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
+    retry         INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
     PRIMARY KEY (experiment_id, trial_id, position),
     FOREIGN KEY (experiment_id, trial_id) REFERENCES trials(experiment_id, trial_id)
 );
@@ -60,7 +62,20 @@ def connect(path: str | Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Bring databases created by older versions up to date. CREATE TABLE IF NOT EXISTS skips existing tables."""
+    span_columns = {row["name"] for row in conn.execute("PRAGMA table_info(spans)")}
+    added_columns = {  # column -> definition, in the order they were added
+        "retry": "INTEGER NOT NULL DEFAULT 0",
+        "error_message": "TEXT",
+    }
+    with conn:
+        for column, definition in added_columns.items():
+            if column not in span_columns:
+                conn.execute(f"ALTER TABLE spans ADD COLUMN {column} {definition}")
 
 def save_experiment(
     conn: sqlite3.Connection,
@@ -90,10 +105,12 @@ def save_experiment(
             [(experiment_id, t.id, t.case_id, t.attempt, t.output, t.failure_type) for t in trials],
         )
         conn.executemany(
-            "INSERT INTO spans VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO spans (experiment_id, trial_id, position, kind, name, start_ns, end_ns,"
+            " status, error_type, input_tokens, output_tokens, retry, error_message)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (experiment_id, t.id, position, s.kind, s.name, s.start, s.end,
-                 s.status, s.error_type, s.input_tokens, s.output_tokens)
+                 s.status, s.error_type, s.input_tokens, s.output_tokens, s.retry, s.error_message)
                 for t in trials
                 for position, s in enumerate(t.spans)
             ],
@@ -104,6 +121,15 @@ def save_experiment(
         )
 
     return experiment_id
+
+def replace_scores(conn: sqlite3.Connection, experiment_id: int, scores: list[Score]) -> None:
+    """Swap in new scores for stored trials, e.g. after fixing a scorer. The trials stay as they were."""
+    with conn:
+        conn.execute("DELETE FROM scores WHERE experiment_id = ?", (experiment_id,))
+        conn.executemany(
+            "INSERT INTO scores VALUES (?, ?, ?, ?, ?)",
+            [(experiment_id, s.trial_id, s.scorer, s.value, s.reasoning) for s in scores],
+        )
 
 def load_experiment(conn: sqlite3.Connection, experiment_id: int) -> Experiment:
     row = conn.execute("SELECT * FROM experiments WHERE id = ?", (experiment_id,)).fetchone()
@@ -135,6 +161,8 @@ def load_trials(conn: sqlite3.Connection, experiment_id: int) -> list[Trial]:
             error_type=row["error_type"],
             input_tokens=row["input_tokens"],
             output_tokens=row["output_tokens"],
+            retry=row["retry"],
+            error_message=row["error_message"],
         ))
 
     return [
