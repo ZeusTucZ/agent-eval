@@ -1,3 +1,4 @@
+import re
 from contextlib import contextmanager
 from time import perf_counter_ns
 
@@ -6,7 +7,9 @@ from evalkit.models import Span
 MAX_RECORDED_TEXT = 1000  # per field: enough to read what happened; API errors can be much longer
 
 def clip(text: str) -> str | None:
-    return text[:MAX_RECORDED_TEXT] or None
+    # Provider errors can name your account, and results may be kept where others can read them.
+    redacted = re.sub(r"\borg_[A-Za-z0-9]+", "org_REDACTED", text)
+    return redacted[:MAX_RECORDED_TEXT] or None
 
 class Tracer:
     def __init__(self, trial_id: int):

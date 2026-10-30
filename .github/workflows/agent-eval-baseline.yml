@@ -1,0 +1,61 @@
+name: agent-eval-baseline
+
+# Runs the agent on main and stores the results, so each pull request only has to run its
+# own change. A full run uses most of a day's free tokens, so it can't happen on every PR.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "evalkit/**"
+      - "prompts/**"
+      - "datasets/**"
+      - ".github/workflows/agent-eval-baseline.yml"
+  schedule:
+    - cron: "0 9 * * 1"  # weekly, as the provider's model can change without any commit here
+  workflow_dispatch:
+
+concurrency:
+  group: agent-eval-baseline
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Must match agent-eval.yml, or the two runs won't be comparable.
+env:
+  DATASET: hard
+  ATTEMPTS: 3
+  RPM: 16
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Run main
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          python -m evalkit.run --agent groq --dataset "$DATASET" --attempts "$ATTEMPTS" \
+            --rpm "$RPM" --timeout 900 --name baseline --db baseline.db
+
+      # Comparing a run with itself passes unless it's damaged. Failing here means a run
+      # spoiled by rate limits never replaces the last good baseline.
+      - name: Check the run is usable
+        run: python -m evalkit.gate baseline.db baseline.db
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-eval-baseline
+          path: baseline.db
+          retention-days: 90

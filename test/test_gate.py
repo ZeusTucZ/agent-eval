@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,7 @@ from evalkit.models import AgentConfig, Experiment, dataset_version
 from evalkit.runner import run_experiment
 from evalkit.sample_data import arithmetic_cases
 from evalkit.scorers import score_trials
+from evalkit.tracer import Tracer
 from test_compare import make_cases, make_data, outcomes
 
 def decision_for(a: ExperimentData, b: ExperimentData, count: int = 20):
@@ -149,3 +151,41 @@ def test_a_run_that_saved_nothing_cannot_be_judged(tmp_path):
     assert decision.exit_code == CANNOT_JUDGE
     assert "no saved experiment for: candidate" in decision.reasons[0]
     assert "Can't judge" in markdown
+
+# --- The workflows ---
+
+WORKFLOWS = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+
+def run_settings(name: str) -> dict[str, str]:
+    env = (WORKFLOWS / name).read_text(encoding="utf-8").split("\nenv:\n")[1].split("\n\n")[0]
+    return {line.split(":")[0].strip(): line.split(":")[1].split("#")[0].strip() for line in env.splitlines()}
+
+def test_the_baseline_and_the_check_run_with_the_same_settings():
+    # If these drift apart, every comparison quietly stops being fair.
+    assert run_settings("agent-eval.yml") == run_settings("agent-eval-baseline.yml")
+    assert int(run_settings("agent-eval.yml")["ATTEMPTS"]) % 2 == 1  # odd, so cases can't tie
+
+def test_a_damaged_baseline_fails_when_compared_with_itself(tmp_path):
+    # The baseline workflow relies on this to avoid publishing a run spoiled by rate limits.
+    path = tmp_path / "baseline.db"
+    save_mock_run(path, 0.05, seed=1)
+    with storage.connect(path) as conn:
+        conn.execute("UPDATE trials SET failure_type = 'quota_exhausted'")
+
+    assert run_gate(str(path), str(path))[0].exit_code == CANNOT_JUDGE
+
+def test_a_healthy_baseline_passes_when_compared_with_itself(tmp_path):
+    path = tmp_path / "baseline.db"
+    save_mock_run(path, 0.05, seed=1)
+    assert run_gate(str(path), str(path))[0].exit_code == PASS
+
+def test_account_ids_are_redacted_from_recorded_text():
+    tracer = Tracer(1)
+    with pytest.raises(ValueError):
+        with tracer.span(kind="llm", name="m"):
+            raise ValueError("Rate limit reached in organization `org_fake123example` on tokens per day")
+
+    message = tracer.spans[0].error_message
+    assert "org_fake123" not in message
+    assert "org_REDACTED" in message
+    assert "tokens per day" in message

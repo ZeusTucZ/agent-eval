@@ -144,7 +144,7 @@ def test_tool_error_rate_matches_injected():
     assert 0.07 < measured < 0.13
 ```
 
-The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 160 tests run in about 15 seconds and run in CI on every pull request.
+The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 164 tests run in about 20 seconds and run in CI on every pull request.
 
 ## Comparing versions
 
@@ -203,7 +203,7 @@ Use an odd number of attempts, and more cases to catch smaller drops. The mock's
 
 ## Regression gate
 
-`evalkit.gate` turns a comparison into a decision, and [`.github/workflows/agent-eval.yml`](.github/workflows/agent-eval.yml) runs it on pull requests that change the agent, prompts or dataset. It runs `main` and the change side by side, then posts the result as a PR comment.
+`evalkit.gate` turns a comparison into a decision, and [`.github/workflows/agent-eval.yml`](.github/workflows/agent-eval.yml) runs it on pull requests that change the agent, prompts or dataset. It runs the change, compares it with a stored baseline from `main`, then posts the result as a PR comment.
 
 | Result | Decision | Exit code |
 |---|---|---|
@@ -218,7 +218,15 @@ Use an odd number of attempts, and more cases to catch smaller drops. The mock's
 .venv\Scripts\python -m evalkit.gate baseline.db candidate.db --markdown report.md
 ```
 
-To turn it on, add a `GROQ_API_KEY` repository secret; until then the check skips with a notice. To make it enforce anything, mark `agent-eval` as a required check in the branch protection settings. Each check is about 670 requests and 45 minutes, so about one a day fits Groq's free tier.
+A full run uses about 140,000 tokens, too many to run `main` again on every PR within a free daily quota. So [`agent-eval-baseline.yml`](.github/workflows/agent-eval-baseline.yml) runs `main` when the agent changes and once a week, and stores the results. A run damaged by rate limits never replaces the last good baseline. The trade-off is that the two runs no longer happen at the same time, and the report warns when the baseline is over 24 hours old.
+
+To turn it on:
+
+1. Add a `GROQ_API_KEY` repository secret. Until then the check skips with a notice.
+2. Run the `agent-eval-baseline` workflow once. Without a baseline, the check reports "can't judge".
+3. To make it enforce anything, mark `gate` as a required check in the branch protection settings.
+
+Each check takes about 25 minutes. Allow a day between a baseline run and a check, since together they use about 280,000 tokens. Every check keeps its report and databases as a workflow artifact for 14 days; account IDs are removed from recorded error messages, because artifacts on a public repository can be downloaded.
 
 Tested on real runs: a damaged prompt that told the agent never to use its tools was **blocked** (87.3% to 63.6%, p = 0.004), and the prompt fix from runs 7 and 8 **passed** with a warning.
 
@@ -270,7 +278,7 @@ evalkit/
 datasets/hard.jsonl  the hard dataset (generated)
 scripts/build_hard_dataset.py  builds it, computing every expected answer
 prompts/           system prompt versions, for --prompt-file
-test/              160 tests, no network needed
+test/              164 tests, no network needed
 ```
 
 ## Known limitations
