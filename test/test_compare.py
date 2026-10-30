@@ -122,6 +122,41 @@ def test_attempts_are_combined_into_one_result_per_case():
     assert result.pass_rate.a == pytest.approx(1 / 3)
     assert result.pass_rate.b == pytest.approx(2 / 3)
 
+def test_a_tied_case_is_not_a_clean_flip():
+    # 1 of 2 -> 2 of 2 moved, but the baseline has no majority, so it isn't evidence of a flip.
+    a = make_data({1: [True, False], 2: [False, False]}, attempts=2)
+    b = make_data({1: [True, True], 2: [True, True]}, attempts=2, prompt="B")
+    result = compare_experiments(a, b, make_cases(2))
+
+    assert [change.case.id for change in result.improved] == [2]
+    assert result.regressed == []
+    assert result.partly_changed == 1
+
+def test_ties_cannot_mask_a_clear_drop():
+    # The shape of a real false pass: 16 clean regressions, 3 clean improvements and 3 ties.
+    a_results = {i: [True, True] for i in range(1, 17)}          # regress
+    a_results |= {i: [False, False] for i in range(17, 20)}      # clean improvements
+    a_results |= {i: [True, False] for i in range(20, 23)}       # ties that improve
+    a_results |= {i: [True, True] for i in range(23, 56)}        # unchanged
+    b_results = {i: [False, False] for i in range(1, 17)}
+    b_results |= {i: [True, True] for i in range(17, 23)}
+    b_results |= {i: [True, True] for i in range(23, 56)}
+
+    result = compare_experiments(
+        make_data(a_results, attempts=2), make_data(b_results, attempts=2, prompt="B"), make_cases(55),
+    )
+
+    assert (len(result.improved), len(result.regressed), result.partly_changed) == (3, 16, 3)
+    assert result.p_value == pytest.approx(2 * (1 + 19 + 171 + 969) / 2 ** 19)  # hand-calculated
+    assert result.verdict == "Worse"
+
+def test_only_ties_moving_is_still_reported_as_a_change():
+    a = make_data({1: [True, False]}, attempts=2)
+    b = make_data({1: [True, True]}, attempts=2, prompt="B")
+    result = compare_experiments(a, b, make_cases(1))
+    assert result.partly_changed == 1
+    assert "no case changed" not in result.reason
+
 def test_more_attempts_do_not_shrink_the_interval_when_they_agree():
     # Repeating identical results three times adds no information, so the interval must not narrow.
     once = compare_experiments(make_data(outcomes(10)), make_data(outcomes(15), prompt="B"), make_cases(20))
@@ -165,7 +200,7 @@ def test_a_big_looking_gain_can_still_be_inconclusive():
 
     assert result.pass_rate.change.mean == pytest.approx(5 / 55)
     assert result.verdict == "Inconclusive"
-    assert "points or more" in result.reason
+    assert "plausibly between" in result.reason
 
 def test_no_changes_at_all_says_the_dataset_cannot_separate_them():
     result = compare_experiments(make_data(outcomes(20)), make_data(outcomes(20), prompt="B"), make_cases(20))

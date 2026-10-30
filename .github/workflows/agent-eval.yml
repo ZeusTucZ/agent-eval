@@ -1,0 +1,114 @@
+name: agent-eval
+
+# The regression gate: runs the agent on main and on this change, side by side, and fails
+# if quality dropped. It costs API quota, so it only runs when the agent could have changed.
+on:
+  pull_request:
+    paths:
+      - "evalkit/**"
+      - "prompts/**"
+      - "datasets/**"
+      - ".github/workflows/agent-eval.yml"
+  workflow_dispatch:
+
+# A newer push to the same branch replaces a check that's still running.
+concurrency:
+  group: agent-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  DATASET: hard
+  ATTEMPTS: 3  # odd, so a case can't tie; catches far more than 2 attempts (see the README)
+  RPM_PER_RUN: 8  # the two runs share Groq's limit, about 8,000 tokens a minute
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    # Secrets aren't available to pull requests from forks, so the check can't run there.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Check for the API key
+        id: key
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          if [ -z "$GROQ_API_KEY" ]; then
+            echo "::notice::Skipping the agent eval: add a GROQ_API_KEY repository secret to enable it."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.skip != 'true'
+
+      - name: Check out the baseline
+        if: steps.key.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref || 'main' }}
+          path: baseline
+
+      - uses: actions/setup-python@v5
+        if: steps.key.outputs.skip != 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        if: steps.key.outputs.skip != 'true'
+        run: pip install -e .
+
+      # At the same time, so both face the same API conditions. Running from inside each
+      # folder makes Python use that folder's evalkit. A crash isn't fatal here: the gate
+      # sees the missing results and reports "can't judge".
+      - name: Run both versions
+        if: steps.key.outputs.skip != 'true'
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          options="--agent groq --dataset $DATASET --attempts $ATTEMPTS --rpm $RPM_PER_RUN --timeout 900"
+          (cd baseline && python -m evalkit.run --name baseline --db ../baseline.db $options) &
+          baseline=$!
+          python -m evalkit.run --name candidate --db candidate.db $options &
+          candidate=$!
+          wait $baseline || echo "::warning::The baseline run failed."
+          wait $candidate || echo "::warning::The candidate run failed."
+
+      - name: Decide
+        id: gate
+        if: steps.key.outputs.skip != 'true'
+        run: |
+          set +e
+          python -m evalkit.gate baseline.db candidate.db --markdown report.md
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+
+      # Model output in the report is escaped by evalkit.gate, because it's untrusted text.
+      - name: Comment on the pull request
+        if: steps.key.outputs.skip != 'true' && github.event_name == 'pull_request' && steps.gate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          marker='<!-- agent-eval-gate -->'
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq "map(select(.body | startswith(\"$marker\"))) | .[0].id // empty" | head -1)
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -F body=@report.md > /dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@report.md > /dev/null
+          fi
+
+      - name: Pass or fail
+        if: steps.key.outputs.skip != 'true'
+        env:
+          CODE: ${{ steps.gate.outputs.code }}
+        run: |
+          case "$CODE" in
+            0) echo "Passed." ;;
+            1) echo "::error::Blocked: see the report in the 'Decide' step or the PR comment."; exit 1 ;;
+            *) echo "::error::Can't judge this change: re-run it, or review it by hand."; exit 1 ;;
+          esac

@@ -144,17 +144,17 @@ def test_tool_error_rate_matches_injected():
     assert 0.07 < measured < 0.13
 ```
 
-The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 136 tests run in about 15 seconds and run in CI on every pull request.
+The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 160 tests run in about 15 seconds and run in CI on every pull request.
 
 ## Comparing versions
 
 A "version" is any change to the agent: its prompt, model, settings or tools. `evalkit.compare` answers one question: **is B really better than A, or did it just get lucky?**
 
 ```bash
-.venv\Scripts\python -m evalkit.run --agent groq --dataset hard --name old --prompt-file prompts/v1.txt --attempts 2
+.venv\Scripts\python -m evalkit.run --agent groq --dataset hard --name old --prompt-file prompts/v1.txt --attempts 3
 ```
 ```bash
-.venv\Scripts\python -m evalkit.run --agent groq --dataset hard --name new --prompt-file prompts/v2.txt --attempts 2
+.venv\Scripts\python -m evalkit.run --agent groq --dataset hard --name new --prompt-file prompts/v2.txt --attempts 3
 ```
 ```bash
 .venv\Scripts\python -m evalkit.compare 8 7
@@ -166,7 +166,7 @@ Run both versions at the same time if you can, so they face the same conditions.
 Differs in:   prompt
 
 Pass rate:    87.3% -> 88.2%   +0.9 points   95% CI [-9.1, +10.9]
-McNemar:      6 improved, 3 regressed   p = 0.508
+McNemar:      3 improved, 3 regressed   p = 1.000   (7 more changed only partly)
 Latency:      1663ms -> 1548ms per trial, excluding waits   -115ms   95% CI [-301, +72]
 
 Categories that moved (leads to investigate, not proof):
@@ -175,18 +175,52 @@ Categories that moved (leads to investigate, not proof):
   tool_error        83.3% -> 100.0%  (6 cases)
   prompt_injection  62.5% -> 50.0%  (4 cases)
 
-Verdict: Inconclusive. a change this size could be chance; with these cases, only a change of about 10 points or more would show up reliably.
+Verdict: Inconclusive. this could be chance: the true change is plausibly between -9 and +11 points.
 ```
 
 How it decides:
 
 - **It checks the comparison is fair first.** Different datasets are refused (a content hash catches an edited dataset). It warns if more than one setting changed, if attempts differ, if the runs are over 24 hours apart, or if infrastructure failures distorted a run.
 - **Paired, case by case.** Both versions answer the same questions, which removes differences in how hard each question is.
-- **McNemar's exact test** uses only the cases where the versions disagree. If they were equally good, each disagreement would be a coin flip.
+- **McNemar's exact test** uses only cases that cleanly flipped. If the versions were equally good, each flip would be a coin toss. A case that ties (1 of 2 attempts) has no majority, so it isn't counted as a flip.
 - **Bootstrap confidence intervals** show how big the change might be. They resample **cases, not trials**, because attempts at the same question aren't independent.
 - **Four verdicts:** Better, Worse, Trade-off (better, but with new safety failures or meaningfully slower or costlier) and Inconclusive, which means "couldn't tell", not "they're the same".
 
-The tool is validated with the mock agent: a known improvement and a known regression are detected, and identical versions rarely look different.
+The tool is validated with the mock agent: a known improvement and a known regression are detected, and none of 200 comparisons of identical versions looked significant.
+
+### What it can and can't detect
+
+"Inconclusive" doesn't mean "no change". This table shows how often a real drop was detected, from 100 mock comparisons for each cell:
+
+| Cases | Attempts | 5-point drop | 10-point | 15-point | 25-point |
+|---|---|---|---|---|---|
+| 55 | 2 | 0% | 0% | 5% | 35% |
+| 55 | 3 | 3% | 19% | 50% | 93% |
+| 200 | 2 | 3% | 31% | 75% | 100% |
+| 500 | 2 | 27% | 82% | 99% | 100% |
+
+Use an odd number of attempts, and more cases to catch smaller drops. The mock's faults are random on every attempt. Real regressions are often consistent, as with the damaged prompt below, so these figures are a cautious guide rather than exact rates for a real model.
+
+## Regression gate
+
+`evalkit.gate` turns a comparison into a decision, and [`.github/workflows/agent-eval.yml`](.github/workflows/agent-eval.yml) runs it on pull requests that change the agent, prompts or dataset. It runs `main` and the change side by side, then posts the result as a PR comment.
+
+| Result | Decision | Exit code |
+|---|---|---|
+| Better | Pass | 0 |
+| Inconclusive | Pass, with a warning | 0 |
+| Better, but slower or costlier | Pass, with a warning | 0 |
+| Worse | **Block** | 1 |
+| Any new safety failure, whatever the verdict | **Block** | 1 |
+| Different datasets, or over 10% infrastructure failures | Can't judge | 2 |
+
+```bash
+.venv\Scripts\python -m evalkit.gate baseline.db candidate.db --markdown report.md
+```
+
+To turn it on, add a `GROQ_API_KEY` repository secret; until then the check skips with a notice. To make it enforce anything, mark `agent-eval` as a required check in the branch protection settings. Each check is about 670 requests and 45 minutes, so about one a day fits Groq's free tier.
+
+Tested on real runs: a damaged prompt that told the agent never to use its tools was **blocked** (87.3% to 63.6%, p = 0.004), and the prompt fix from runs 7 and 8 **passed** with a warning.
 
 ## What the live runs taught me
 
@@ -207,7 +241,8 @@ Lessons:
 - **A comparison only means something if only one thing changed.** Runs 2 and 3 differed in quota as well as settings, so they can't be compared.
 - **Separate infrastructure failures from model failures.** "68.8% correct" and "100% correct, 31% blocked by rate limits" lead to completely different fixes.
 - **An average can hide large moves in both directions.** Runs 7 and 8 differ by 0.9 points overall, while four categories moved by 12 to 33 points.
-- **A fix can work and still not be provable.** With 55 cases, only changes of about 10 points or more show up reliably.
+- **A fix can work and still not be provable.** With 55 cases and 3 attempts, even a 15-point drop is caught only about half the time.
+- **Test the gate on a known-bad change.** The first demonstration let a 23.6-point drop through, because tied cases counted as improvements and pushed p to 0.052. Measuring detection rates then showed my claim that 55 cases catch 10-point changes was wrong.
 - **The total-vs-working latency gap in run 5 (57.8 s vs 1.6 s at p95) is my own rate limiter.** It allows 25 requests in any 60 s window, so it sends bursts and then waits.
 
 ## Project structure
@@ -230,11 +265,12 @@ evalkit/
   rescore.py       command line: re-score a saved experiment
   stats.py         McNemar's exact test and bootstrap confidence intervals
   compare.py       command line: fairness checks, paired comparison, verdict
+  gate.py          command line: pass, block or can't judge, for CI
   sample_data.py   datasets (arithmetic, mixed, hard) and the tools each one uses
 datasets/hard.jsonl  the hard dataset (generated)
 scripts/build_hard_dataset.py  builds it, computing every expected answer
 prompts/           system prompt versions, for --prompt-file
-test/              136 tests, no network needed
+test/              160 tests, no network needed
 ```
 
 ## Known limitations
@@ -243,8 +279,8 @@ test/              136 tests, no network needed
 - **The rate limiter counts requests, not tokens, and allows bursts**, which inflated p95 latency on Groq.
 - **Prices are paid-tier rates from third-party trackers (October 2026).** Check them against each provider's pricing page.
 - **Attempts vary even at `temperature=0`.** They were nearly identical on the easy dataset in run 5, but differed on several hard cases in runs 7 and 8.
-- **With an even number of attempts, a 1-of-2 case counts as failing**, which can inflate the improved and regressed counts. An odd number avoids ties.
-- **Prompt comparisons are underpowered at this size.** Detecting changes under about 10 points needs a few hundred cases.
+- **The gate passes "Inconclusive" results**, so small regressions can get through. See the detection table.
+- **The dataset is small for this job.** Reliably catching drops of 10 to 15 points needs a few hundred cases.
 
 ## Roadmap
 
@@ -255,7 +291,7 @@ test/              136 tests, no network needed
 - [ ] Evenly spaced, token-aware rate limiting
 - [ ] **Phase 3:** LLM-as-judge and groundedness scorers, calibrated against human labels
 - [x] **Phase 4:** comparing versions with fairness checks, paired tests and confidence intervals
-- [ ] **Phase 5:** regression gate in CI that fails a PR on a significant drop
+- [x] **Phase 5:** regression gate in CI that blocks significant drops and new safety failures
 - [ ] **Phase 6:** dashboard
 
 ## License

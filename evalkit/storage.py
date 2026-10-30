@@ -142,6 +142,9 @@ def replace_scores(conn: sqlite3.Connection, experiment_id: int, scores: list[Sc
             [(experiment_id, s.trial_id, s.scorer, s.value, s.reasoning) for s in scores],
         )
 
+def latest_experiment_id(conn: sqlite3.Connection) -> int | None:
+    return conn.execute("SELECT MAX(id) FROM experiments").fetchone()[0]
+
 def load_experiment(conn: sqlite3.Connection, experiment_id: int) -> Experiment:
     row = conn.execute("SELECT * FROM experiments WHERE id = ?", (experiment_id,)).fetchone()
     if row is None:

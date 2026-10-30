@@ -45,7 +45,7 @@ def config_changes(a: AgentConfig, b: AgentConfig) -> list[str]:
     flat_a, flat_b = _flatten(a.model_dump()), _flatten(b.model_dump())
     return sorted(key for key in flat_a.keys() | flat_b.keys() if flat_a.get(key) != flat_b.get(key))
 
-def _is_infrastructure_failure(failure_type: str | None) -> bool:
+def is_infrastructure_failure(failure_type: str | None) -> bool:
     return failure_type is not None and (
         failure_type in {"quota_exhausted", "llm_error"} or failure_type.startswith("timeout")
     )
@@ -86,7 +86,7 @@ def check_comparable(a: ExperimentData, b: ExperimentData) -> Fairness:
         fairness.warnings.append("the runs are over 24 hours apart: the provider's model or load may have changed")
 
     for label, data in (("A", a), ("B", b)):
-        failed = sum(_is_infrastructure_failure(trial.failure_type) for trial in data.trials)
+        failed = sum(is_infrastructure_failure(trial.failure_type) for trial in data.trials)
         if failed:
             fairness.warnings.append(
                 f"{failed} of {len(data.trials)} trials in {label} failed for infrastructure reasons, not the model's"
@@ -129,6 +129,7 @@ class Comparison:
     p_value: float
     improved: list[CaseChange]
     regressed: list[CaseChange]
+    partly_changed: int  # cases whose rate moved without a clean flip, e.g. 1 of 2 -> 2 of 2
     working_ms: MetricChange
     cost: MetricChange
     categories: dict[str, tuple[float, float, int]]  # category -> (A rate, B rate, cases)
@@ -166,6 +167,9 @@ def _metric(a: dict[int, float], b: dict[int, float], case_ids: list[int], resam
 def _passes(rate: float) -> bool:
     return rate > 0.5  # a case passes if most of its attempts did
 
+def _fails(rate: float) -> bool:
+    return rate < 0.5  # exactly half is neither: with an even number of attempts, that's a tie
+
 def _decide(
     pass_rate: MetricChange,
     p_value: float,
@@ -194,11 +198,10 @@ def _decide(
 
     if disagreements == 0:
         return "Inconclusive", "no case changed result, so this dataset can't separate the two versions"
-    half_width = (change.high - change.low) / 2 * 100
     note = f"; {len(safety_regressions)} new safety failure(s) need a look" if safety_regressions else ""
     return "Inconclusive", (
-        f"a change this size could be chance; with these cases, only a change of "
-        f"about {half_width:.0f} points or more would show up reliably{note}"
+        f"this could be chance: the true change is plausibly between "
+        f"{change.low * 100:+.0f} and {change.high * 100:+.0f} points{note}"
     )
 
 def compare_experiments(
@@ -217,8 +220,12 @@ def compare_experiments(
         return CaseChange(by_id[case_id], a_rates[case_id], b_rates[case_id],
                           _typical_output(a, case_id), _typical_output(b, case_id))
 
-    improved = [change_for(i) for i in case_ids if not _passes(a_rates[i]) and _passes(b_rates[i])]
-    regressed = [change_for(i) for i in case_ids if _passes(a_rates[i]) and not _passes(b_rates[i])]
+    # Only clean flips count as evidence. A tied case has no majority either way, so treating
+    # 1 of 2 -> 2 of 2 as an improvement adds noise to McNemar's test; the pass rate still
+    # reflects it. Counting ties once let a 23.6-point drop pass as "could be chance".
+    improved = [change_for(i) for i in case_ids if _fails(a_rates[i]) and _passes(b_rates[i])]
+    regressed = [change_for(i) for i in case_ids if _passes(a_rates[i]) and _fails(b_rates[i])]
+    partly_changed = sum(a_rates[i] != b_rates[i] for i in case_ids) - len(improved) - len(regressed)
 
     pass_rate = _metric(a_rates, b_rates, case_ids, resamples)
     p_value = mcnemar_exact(len(improved), len(regressed))
@@ -251,10 +258,11 @@ def compare_experiments(
     ]
 
     verdict, reason = _decide(
-        pass_rate, p_value, working_ms, cost, safety_regressions, len(improved) + len(regressed),
+        pass_rate, p_value, working_ms, cost, safety_regressions,
+        len(improved) + len(regressed) + partly_changed,
     )
     return Comparison(
-        len(case_ids), pass_rate, p_value, improved, regressed, working_ms, cost,
+        len(case_ids), pass_rate, p_value, improved, regressed, partly_changed, working_ms, cost,
         categories, safety_regressions, verdict, reason,
     )
 
@@ -277,7 +285,8 @@ def format_comparison(a: ExperimentData, b: ExperimentData, fairness: Fairness, 
         "",
         f"Pass rate:    {result.pass_rate.a:.1%} -> {result.pass_rate.b:.1%}   "
         f"{pass_change.mean * 100:+.1f} points   95% CI [{pass_change.low * 100:+.1f}, {pass_change.high * 100:+.1f}]",
-        f"McNemar:      {len(result.improved)} improved, {len(result.regressed)} regressed   p = {result.p_value:.3f}",
+        f"McNemar:      {len(result.improved)} improved, {len(result.regressed)} regressed   p = {result.p_value:.3f}"
+        + (f"   ({result.partly_changed} more changed only partly)" if result.partly_changed else ""),
         f"Latency:      {result.working_ms.a:.0f}ms -> {result.working_ms.b:.0f}ms per trial, excluding waits   "
         f"{working.mean:+.0f}ms   95% CI [{working.low:+.0f}, {working.high:+.0f}]",
         f"Cost/trial:   ${result.cost.a:.6f} -> ${result.cost.b:.6f}   "
