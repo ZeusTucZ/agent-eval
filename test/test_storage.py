@@ -86,14 +86,17 @@ def test_databases_from_phase_1_are_migrated(tmp_path):
         storage.SCHEMA
         .replace("    retry         INTEGER NOT NULL DEFAULT 0,\n", "")
         .replace("    error_message TEXT,\n", "")
+        .replace("    input_text    TEXT,\n", "")
+        .replace("    output_text   TEXT,\n", "")
     )
-    assert "retry " not in phase_1_schema and "error_message" not in phase_1_schema
+    added_later = {"retry", "error_message", "input_text", "output_text"}
+    assert not any(f"    {column} " in phase_1_schema for column in added_later)
     old.executescript(phase_1_schema)
     old.close()
 
     conn = storage.connect(path)
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(spans)")}
-    assert {"retry", "error_message"} <= columns
+    assert added_later <= columns
 
     trials, scores = run_and_score()
     experiment_id = storage.save_experiment(conn, make_experiment(), trials, scores)

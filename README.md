@@ -44,7 +44,7 @@ flowchart LR
 |---|---|
 | **EvaluationCase** | One question, its expected answer and the tool it should use |
 | **Trial** | One attempt at one case. Each case runs several times, because LLMs are nondeterministic |
-| **Span** | One step inside a trial (an LLM call or a tool call) with start/end time, tokens, status, error type and message |
+| **Span** | One step inside a trial (an LLM call or a tool call) with start/end time, tokens, status, error type and message; tool spans also keep the arguments the model sent and the result |
 | **Score** | A judgement about a trial. Kept separate from trials, so scorers can be fixed and **re-run without calling the model again** |
 | **AgentConfig** | Model, prompt and settings; its content hash is the version, so any change gives a new version automatically |
 | **Experiment** | One config run over one dataset, with a snapshot of prices at run time |
@@ -59,7 +59,7 @@ flowchart LR
 - **Latency:** p50/p95, both **total** (what a user waits) and **excluding waits** (time inside requests).
 - **Cost:** tokens from the provider's response × a per-model price table; total and **per successful answer**.
 - **Retries:** counted by reason (`rate_limit`, `server_error`, `connection_error`).
-- **Failures, labelled by cause:** `tool_error`, `llm_error`, `timeout` (a step hung), `timeout_after_rate_limit` (ran out of time waiting to retry), `quota_exhausted`, `max_steps_exceeded`.
+- **Failures, labelled by cause:** `tool_error`, `llm_error`, `timeout` (a step hung), `timeout_after_rate_limit` (ran out of time waiting to retry), `quota_exhausted`, `max_steps_exceeded`, and two model failures: `output_truncated` (hit the output-token limit before answering) and `invalid_model_output` (e.g. a malformed tool call).
 
 ## Reliability features
 
@@ -110,7 +110,7 @@ Set an API key as an environment variable. Never put keys in code; `.env` is git
 .venv\Scripts\python -m evalkit.run --agent groq --name groq-run --attempts 3
 ```
 
-Useful options: `--model`, `--dataset arithmetic|mixed`, `--concurrency`, `--rpm` (requests per minute), `--timeout`, `--max-steps`, `--temperature`. For the mock agent: `--tool-error-rate`, `--rate-limit-rate`, `--hallucination-rate`, `--hang-rate`. See `python -m evalkit.run --help`.
+Useful options: `--model`, `--dataset arithmetic|mixed|hard`, `--concurrency`, `--rpm` (requests per minute), `--timeout`, `--max-steps`, `--temperature`. For the mock agent: `--tool-error-rate`, `--rate-limit-rate`, `--hallucination-rate`, `--hang-rate`. See `python -m evalkit.run --help`.
 
 Re-score a saved experiment after changing a scorer, without calling the model again:
 
@@ -119,6 +119,18 @@ Re-score a saved experiment after changing a scorer, without calling the model a
 ```
 
 To use a model that isn't in the price table, add it to `PRICES` in [`evalkit/cost.py`](evalkit/cost.py). The run refuses to start without a price rather than reporting a misleading $0.
+
+## Datasets
+
+| Dataset | Cases | Use |
+|---|---|---|
+| `arithmetic` | any number | the mock agent; validating the harness |
+| `mixed` | 16 | real models: large calculations, capitals, one missing country |
+| `hard` | 55 in 10 categories | real models; the report breaks the pass rate down by category |
+
+The `hard` categories each test a different skill: `single_step` (baseline), `multi_step` (feeding one result into the next call), `word_problem`, `long_chain` (more calls than `max_steps` allows unless the model batches them), `no_tool` (calling a tool here is a mistake), `tool_error` and `ambiguous` (the honest answer is "unknown"), `similar_tools` (capital vs. largest city), `conflicting_source` (the reference data is wrong on purpose; the instructed answer follows the tool) and `prompt_injection` (a tool result carries instructions the agent must ignore, checked by the `avoids_forbidden_text` scorer).
+
+Its tools use their own reference data with those planted errors and injections. Every expected answer is computed by [`scripts/build_hard_dataset.py`](scripts/build_hard_dataset.py), and a test checks the JSONL file matches it.
 
 ## Testing the harness itself
 
@@ -132,7 +144,7 @@ def test_tool_error_rate_matches_injected():
     assert 0.07 < measured < 0.13
 ```
 
-The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 62 tests run in about 9 seconds and run in CI on every pull request.
+The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 89 tests run in about 9 seconds and run in CI on every pull request.
 
 ## What the live runs taught me
 
@@ -170,15 +182,16 @@ evalkit/
   report.py        metrics and the text report
   run.py           command line: run and save an experiment
   rescore.py       command line: re-score a saved experiment
-  sample_data.py   arithmetic and mixed datasets
-test/              62 tests, no network needed
+  sample_data.py   datasets (arithmetic, mixed, hard) and the tools each one uses
+datasets/hard.jsonl  the hard dataset (generated)
+scripts/build_hard_dataset.py  builds it, computing every expected answer
+test/              89 tests, no network needed
 ```
 
 ## Known limitations
 
-- **The dataset is too easy.** 100% on Groq leaves no room to tell models apart or catch regressions.
+- **The `mixed` dataset is too easy** (100% on Groq). The `hard` dataset was added for this; with about 5 cases per category, per-category rates are still rough.
 - **The rate limiter counts requests, not tokens, and allows bursts**, which inflated p95 latency on Groq.
-- **`tool_execution` counts an expected "not found" as a tool failure** (93.8% in run 5 for correct behaviour).
 - **Prices are paid-tier rates from third-party trackers (October 2026).** Check them against each provider's pricing page.
 - **The 3 attempts per case in run 5 were nearly identical** at `temperature=0`, so they measured API flakiness rather than model variation.
 
@@ -187,7 +200,7 @@ test/              62 tests, no network needed
 - [x] **Phase 0:** mock agent with fault injection; harness validated against known rates
 - [x] **Phase 1:** concurrency, timeouts, cost, versioned configs, SQLite storage, reports
 - [x] **Phase 2:** Gemini and OpenAI-compatible agents, retries, rate limits, quotas, tool-call scoring
-- [ ] Harder dataset: multi-step questions, no-tool questions, misleading tool output, prompt injection in tool results
+- [x] Harder dataset: 55 cases in 10 categories, with a per-category report
 - [ ] Evenly spaced, token-aware rate limiting
 - [ ] **Phase 3:** LLM-as-judge and groundedness scorers, calibrated against human labels
 - [ ] **Phase 4:** comparing versions with paired tests and confidence intervals
