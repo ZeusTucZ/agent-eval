@@ -1,7 +1,8 @@
 name: agent-eval
 
-# The regression gate: runs the agent on main and on this change, side by side, and fails
-# if quality dropped. It costs API quota, so it only runs when the agent could have changed.
+# The regression gate: runs the agent on this change, compares it with the stored baseline
+# from main, and fails if quality dropped. It costs API quota, so it only runs when the
+# agent could have changed. agent-eval-baseline.yml keeps the baseline up to date.
 on:
   pull_request:
     paths:
@@ -17,18 +18,20 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  actions: read  # to find and download the stored baseline
   contents: read
   pull-requests: write
 
+# Must match agent-eval-baseline.yml, or the two runs won't be comparable.
 env:
   DATASET: hard
   ATTEMPTS: 3  # odd, so a case can't tie; catches far more than 2 attempts (see the README)
-  RPM_PER_RUN: 8  # the two runs share Groq's limit, about 8,000 tokens a minute
+  RPM: 16
 
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 80
+    timeout-minutes: 45
     # Secrets aren't available to pull requests from forks, so the check can't run there.
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
@@ -45,13 +48,6 @@ jobs:
       - uses: actions/checkout@v4
         if: steps.key.outputs.skip != 'true'
 
-      - name: Check out the baseline
-        if: steps.key.outputs.skip != 'true'
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.base_ref || 'main' }}
-          path: baseline
-
       - uses: actions/setup-python@v5
         if: steps.key.outputs.skip != 'true'
         with:
@@ -62,21 +58,30 @@ jobs:
         if: steps.key.outputs.skip != 'true'
         run: pip install -e .
 
-      # At the same time, so both face the same API conditions. Running from inside each
-      # folder makes Python use that folder's evalkit. A crash isn't fatal here: the gate
-      # sees the missing results and reports "can't judge".
-      - name: Run both versions
+      - name: Download the baseline
+        id: baseline
         if: steps.key.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id=$(gh run list --workflow agent-eval-baseline.yml --branch main --status success \
+            --limit 1 --json databaseId --jq '.[0].databaseId // empty' || true)
+          if [ -n "$run_id" ] && gh run download "$run_id" --name agent-eval-baseline --dir .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No stored baseline yet: run the agent-eval-baseline workflow on main."
+          fi
+
+      # Without a baseline there's nothing to compare, so don't spend quota; the gate reports it.
+      # A crash isn't fatal here either: the gate sees the missing results and says "can't judge".
+      - name: Run this change
+        if: steps.baseline.outputs.found == 'true'
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          options="--agent groq --dataset $DATASET --attempts $ATTEMPTS --rpm $RPM_PER_RUN --timeout 900"
-          (cd baseline && python -m evalkit.run --name baseline --db ../baseline.db $options) &
-          baseline=$!
-          python -m evalkit.run --name candidate --db candidate.db $options &
-          candidate=$!
-          wait $baseline || echo "::warning::The baseline run failed."
-          wait $candidate || echo "::warning::The candidate run failed."
+          python -m evalkit.run --agent groq --dataset "$DATASET" --attempts "$ATTEMPTS" \
+            --rpm "$RPM" --timeout 900 --name candidate --db candidate.db \
+            || echo "::warning::The run failed."
 
       - name: Decide
         id: gate
@@ -85,6 +90,19 @@ jobs:
           set +e
           python -m evalkit.gate baseline.db candidate.db --markdown report.md
           echo "code=$?" >> "$GITHUB_OUTPUT"
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      # Everything needed to see why a check came out as it did, including full error messages.
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.key.outputs.skip != 'true'
+        with:
+          name: agent-eval-results
+          path: |
+            report.md
+            baseline.db
+            candidate.db
+          if-no-files-found: ignore
+          retention-days: 14
 
       # Model output in the report is escaped by evalkit.gate, because it's untrusted text.
       - name: Comment on the pull request
@@ -109,6 +127,6 @@ jobs:
         run: |
           case "$CODE" in
             0) echo "Passed." ;;
-            1) echo "::error::Blocked: see the report in the 'Decide' step or the PR comment."; exit 1 ;;
+            1) echo "::error::Blocked: see the report in this run's summary or the PR comment."; exit 1 ;;
             *) echo "::error::Can't judge this change: re-run it, or review it by hand."; exit 1 ;;
           esac
