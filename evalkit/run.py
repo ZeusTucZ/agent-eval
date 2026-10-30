@@ -2,14 +2,15 @@ import argparse
 import asyncio
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 
 from evalkit import storage
 from evalkit.cost import PRICES
-from evalkit.models import AgentConfig, EvaluationCase, Experiment
+from evalkit.models import AgentConfig, EvaluationCase, Experiment, dataset_version
 from evalkit.runner import Agent, run_experiment
 from evalkit.sample_data import arithmetic_cases, dataset_by_name, tools_for_dataset
 from evalkit.scorers import score_trials
-from evalkit.tools import ToolRegistry
+from evalkit.tools import SYSTEM_PROMPT, ToolRegistry
 
 def build_mock(args) -> tuple[Agent, AgentConfig]:
     from evalkit.mock_agent import FaultConfig, MockAgent
@@ -49,6 +50,11 @@ def _require_key(variable: str, where: str) -> None:
     if not os.environ.get(variable):
         raise SystemExit(f"Set the {variable} environment variable first (get a key at {where}).")
 
+def _system_prompt(args) -> str:
+    if args.prompt_file is None:
+        return SYSTEM_PROMPT
+    return Path(args.prompt_file).read_text(encoding="utf-8").strip()
+
 def build_gemini(args) -> tuple[Agent, AgentConfig]:
     from evalkit.gemini_agent import GeminiAgent
 
@@ -56,6 +62,7 @@ def build_gemini(args) -> tuple[Agent, AgentConfig]:
     agent = GeminiAgent(
         model=args.model,
         tools=ToolRegistry(tools_for_dataset(args.dataset)),
+        system_prompt=_system_prompt(args),
         max_steps=args.max_steps,
         temperature=args.temperature,
         requests_per_minute=args.rpm or None,
@@ -70,6 +77,7 @@ def build_groq(args) -> tuple[Agent, AgentConfig]:
         model=args.model,
         tools=ToolRegistry(tools_for_dataset(args.dataset)),
         provider="groq",
+        system_prompt=_system_prompt(args),
         max_steps=args.max_steps,
         temperature=args.temperature,
         requests_per_minute=args.rpm or None,
@@ -115,6 +123,7 @@ def main() -> None:
     real = parser.add_argument_group("real agents (gemini, groq)")
     real.add_argument("--max-steps", type=int, default=5)
     real.add_argument("--temperature", type=float, default=0.0)
+    real.add_argument("--prompt-file", help="file holding the system prompt; default: the built-in prompt")
     real.add_argument("--rpm", type=int,
                       help="requests per minute to stay under; default 8 gemini, 25 groq; check your quota; 0 = no limit")
     args = parser.parse_args()
@@ -145,6 +154,7 @@ def main() -> None:
     experiment = Experiment(
         name=args.name,
         dataset_name=dataset_name,
+        dataset_version=dataset_version(dataset),
         config=config,
         attempts=args.attempts,
         prices=PRICES,

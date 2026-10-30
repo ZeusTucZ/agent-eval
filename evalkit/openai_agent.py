@@ -7,7 +7,7 @@ import openai
 
 from evalkit.models import EvaluationCase
 from evalkit.retry import RateLimiter, RetryPolicy, call_llm_with_retries
-from evalkit.runner import InvalidModelOutput, MaxStepsExceeded, OutputTruncated, QuotaExhausted
+from evalkit.runner import EmptyOutput, InvalidModelOutput, MaxStepsExceeded, OutputTruncated, QuotaExhausted
 from evalkit.tools import DEFAULT_TOOLS, SYSTEM_PROMPT, ToolRegistry
 from evalkit.tracer import Tracer
 
@@ -125,7 +125,10 @@ class OpenAICompatibleAgent:
             if choice.finish_reason == "length":
                 raise OutputTruncated("the model hit its output-token limit before answering")
             if not message.tool_calls:
-                return (message.content or "").strip()
+                answer = (message.content or "").strip()
+                if not answer:
+                    raise EmptyOutput("the model finished without saying anything")
+                return answer
 
             # Echo the assistant turn back by hand: some providers reject extra fields
             # (such as a reasoning trace) that the SDK's message object carries.

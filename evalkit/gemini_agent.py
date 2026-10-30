@@ -7,7 +7,7 @@ from google.genai import errors, types
 
 from evalkit.models import EvaluationCase
 from evalkit.retry import RateLimiter, RetryPolicy, call_llm_with_retries
-from evalkit.runner import MaxStepsExceeded, OutputTruncated, QuotaExhausted
+from evalkit.runner import EmptyOutput, MaxStepsExceeded, OutputTruncated, QuotaExhausted
 from evalkit.tools import DEFAULT_TOOLS, SYSTEM_PROMPT, ToolRegistry
 from evalkit.tracer import Tracer
 
@@ -130,7 +130,10 @@ class GeminiAgent:
 
             function_calls = response.function_calls or []
             if not function_calls:
-                return (response.text or "").strip()
+                answer = (response.text or "").strip()
+                if not answer:
+                    raise EmptyOutput("the model finished without saying anything")
+                return answer
 
             contents.append(response.candidates[0].content)
             contents.append(types.Content(role="user", parts=[

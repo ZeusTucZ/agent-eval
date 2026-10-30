@@ -88,6 +88,7 @@ def test_databases_from_phase_1_are_migrated(tmp_path):
         .replace("    error_message TEXT,\n", "")
         .replace("    input_text    TEXT,\n", "")
         .replace("    output_text   TEXT,\n", "")
+        .replace("    dataset_version TEXT,\n", "")
     )
     added_later = {"retry", "error_message", "input_text", "output_text"}
     assert not any(f"    {column} " in phase_1_schema for column in added_later)
@@ -97,6 +98,7 @@ def test_databases_from_phase_1_are_migrated(tmp_path):
     conn = storage.connect(path)
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(spans)")}
     assert added_later <= columns
+    assert "dataset_version" in {row["name"] for row in conn.execute("PRAGMA table_info(experiments)")}
 
     trials, scores = run_and_score()
     experiment_id = storage.save_experiment(conn, make_experiment(), trials, scores)

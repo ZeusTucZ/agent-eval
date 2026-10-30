@@ -170,3 +170,10 @@ def test_tool_spans_record_arguments_and_results():
     tool = trials[0].spans[1]
     assert json.loads(tool.input) == {"a": 48213, "operator": "*", "b": 9917}
     assert json.loads(tool.output) == 478128321
+
+def test_an_empty_answer_is_a_failure_not_a_silent_blank():
+    agent, _ = agent_with(completion({"content": ""}))
+    trials, _ = run(agent)
+
+    assert trials[0].failure_type == "empty_output"
+    assert trials[0].output is None

@@ -20,6 +20,10 @@ class OutputTruncated(AgentFailure):
     """The model hit its output-token limit (often mid-reasoning) before giving an answer."""
     failure_type = "output_truncated"
 
+class EmptyOutput(AgentFailure):
+    """The model finished normally but said nothing."""
+    failure_type = "empty_output"
+
 class InvalidModelOutput(AgentFailure):
     """The model produced output the provider couldn't parse, e.g. a malformed tool call."""
     failure_type = "invalid_model_output"
