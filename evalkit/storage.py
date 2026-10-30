@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     id             INTEGER PRIMARY KEY,
     name           TEXT NOT NULL,
     dataset_name   TEXT NOT NULL,
+    dataset_version TEXT,
     config_json    TEXT NOT NULL,
     config_version TEXT NOT NULL,
     attempts       INTEGER NOT NULL,
@@ -69,17 +70,21 @@ def connect(path: str | Path) -> sqlite3.Connection:
 
 def _migrate(conn: sqlite3.Connection) -> None:
     """Bring databases created by older versions up to date. CREATE TABLE IF NOT EXISTS skips existing tables."""
-    span_columns = {row["name"] for row in conn.execute("PRAGMA table_info(spans)")}
-    added_columns = {  # column -> definition, in the order they were added
-        "retry": "INTEGER NOT NULL DEFAULT 0",
-        "error_message": "TEXT",
-        "input_text": "TEXT",
-        "output_text": "TEXT",
+    added_columns = {  # table -> {column: definition}, in the order they were added
+        "spans": {
+            "retry": "INTEGER NOT NULL DEFAULT 0",
+            "error_message": "TEXT",
+            "input_text": "TEXT",
+            "output_text": "TEXT",
+        },
+        "experiments": {"dataset_version": "TEXT"},
     }
     with conn:
-        for column, definition in added_columns.items():
-            if column not in span_columns:
-                conn.execute(f"ALTER TABLE spans ADD COLUMN {column} {definition}")
+        for table, columns in added_columns.items():
+            existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            for column, definition in columns.items():
+                if column not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 def save_experiment(
     conn: sqlite3.Connection,
@@ -90,11 +95,13 @@ def save_experiment(
     """Save everything in one transaction: a crash halfway leaves nothing behind, not half an experiment."""
     with conn:
         cursor = conn.execute(
-            "INSERT INTO experiments (name, dataset_name, config_json, config_version, attempts, prices_json, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO experiments (name, dataset_name, dataset_version, config_json, config_version,"
+            " attempts, prices_json, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 experiment.name,
                 experiment.dataset_name,
+                experiment.dataset_version,
                 experiment.config.model_dump_json(),
                 experiment.config.version,
                 experiment.attempts,
@@ -148,6 +155,7 @@ def load_experiment(conn: sqlite3.Connection, experiment_id: int) -> Experiment:
         attempts=row["attempts"],
         prices={model: Price(**price) for model, price in json.loads(row["prices_json"]).items()},
         created_at=datetime.fromisoformat(row["created_at"]),
+        dataset_version=row["dataset_version"],
     )
 
 def load_trials(conn: sqlite3.Connection, experiment_id: int) -> list[Trial]:

@@ -95,3 +95,9 @@ class Experiment(BaseModel):
     attempts: int
     prices: dict[str, Price]  # snapshot at run time, so later price changes don't rewrite history
     created_at: datetime
+    dataset_version: str | None = None  # None for experiments saved before Phase 4
+
+def dataset_version(cases: list[EvaluationCase]) -> str:
+    """Content hash of a dataset: if any case changes, runs are no longer comparable."""
+    content = json.dumps([case.model_dump() for case in cases], sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(content.encode()).hexdigest()[:12]
