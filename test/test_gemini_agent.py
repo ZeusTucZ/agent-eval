@@ -116,3 +116,8 @@ def test_endless_tool_calls_stop_at_max_steps():
 
     assert trials[0].failure_type == "max_steps_exceeded"
     assert trials[0].output is None
+
+def test_an_empty_answer_is_a_failure_not_a_silent_blank():
+    trials, _ = run(GeminiAgent(client=fake_client(final_answer("   ")), retry_policy=NO_WAIT))
+
+    assert trials[0].failure_type == "empty_output"
