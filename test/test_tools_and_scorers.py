@@ -1,7 +1,14 @@
 import pytest
 
 from evalkit.models import EvaluationCase, Span, Trial
-from evalkit.scorers import exact_match, score_trials, tool_arguments_valid, tool_execution, tool_selection
+from evalkit.scorers import (
+    exact_match,
+    score_trials,
+    tool_arguments_valid,
+    tool_execution,
+    tool_faithfulness,
+    tool_selection,
+)
 from evalkit.tools import DEFAULT_TOOLS, ToolArgumentError, ToolRegistry, UnknownToolError
 from evalkit.tracer import Tracer
 
@@ -80,3 +87,49 @@ def test_score_trials_skips_scorers_with_nothing_to_judge():
     no_expected_tool = case.model_copy(update={"expected_tool": None})
     scores = score_trials([no_expected_tool], [trial_with()])
     assert [score.scorer for score in scores] == ["exact_match"]
+
+# --- Hallucination: tool_faithfulness ---
+
+def recorded_tool(result: str | None, error_type: str | None = None) -> Span:
+    return Span(trial_id=1, kind="tool", name="calculator", start=0, end=0, input='{"a": 1}', output=result,
+                status="error" if error_type else "success", error_type=error_type)
+
+calculation = EvaluationCase(id=1, input="What is 48213 * 9917?", expected_output="478128321", expected_tool="calculator")
+
+@pytest.mark.parametrize("output, results, expected", [
+    ("478128321", ["478128321"], 1.0),
+    ("478,128,321", ["478128321"], 1.0),         # formatting doesn't matter
+    ("478128322", ["478128321"], 0.0),           # one digit away is an invented number
+    ("623 534.97", ["623", "534.97"], 1.0),      # every number has a source
+    ("623 999", ["623"], 0.0),                   # one number doesn't
+    ("391", [], 0.0),                            # answered without any tool result
+])
+def test_numbers_must_come_from_tool_results(output, results, expected):
+    trial = trial_with(llm_span(), *[recorded_tool(result) for result in results], output=output)
+    assert tool_faithfulness(calculation, trial).value == expected
+
+@pytest.mark.parametrize("output, result, expected", [
+    ("Brasília", '"Brasília"', 1.0),
+    ("Brasilia", '"Brasília"', 1.0),
+    ("Rio de Janeiro", '"Brasília"', 0.0),
+])
+def test_text_must_come_from_tool_results(output, result, expected):
+    assert tool_faithfulness(case, trial_with(llm_span(), recorded_tool(result), output=output)).value == expected
+
+def test_the_tool_being_wrong_is_not_a_hallucination():
+    # It measures faithfulness to the source, not truth: this answer is wrong but faithful.
+    turkey = EvaluationCase(id=1, input="Capital of Turkey?", expected_output="Ankara", expected_tool="lookup_capital")
+    assert tool_faithfulness(turkey, trial_with(llm_span(), recorded_tool('"Istanbul"'), output="Istanbul")).value == 1.0
+
+def test_a_failed_tool_call_backs_nothing():
+    trial = trial_with(llm_span(), recorded_tool(None, "LookupError"), output="Thimphu")
+    assert tool_faithfulness(case, trial).value == 0.0
+
+@pytest.mark.parametrize("trial, the_case", [
+    (trial_with(llm_span(), output="unknown"), case),                                         # claimed nothing
+    (trial_with(llm_span(), output=None), case),                                              # no answer
+    (trial_with(llm_span(), output="god"), case.model_copy(update={"expected_tool": None})),  # no tool required
+    (trial_with(llm_span(), tool_span("calculator"), output="391"), case),                    # tool data not recorded
+])
+def test_nothing_to_judge(trial, the_case):
+    assert tool_faithfulness(the_case, trial) is None

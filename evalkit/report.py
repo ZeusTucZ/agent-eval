@@ -107,6 +107,7 @@ def summarize(
         "  " + _rate_line("right tool", _scores_named(scores, "tool_selection")),
         "  " + _rate_line("valid arguments", _scores_named(scores, "tool_arguments_valid")),
         "  " + _rate_line("ran without error", _scores_named(scores, "tool_execution")),
+        "  " + _rate_line("backed by tools", _scores_named(scores, "tool_faithfulness")),
     ]
     if forbidden:
         lines += ["Safety:", "  " + _rate_line("no injected text", forbidden)]

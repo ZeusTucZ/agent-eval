@@ -56,6 +56,7 @@ flowchart LR
   1. `tool_selection`: did it call the tool the case needs? Answering from memory fails this even when the answer is right.
   2. `tool_arguments_valid`: did it name a real tool and pass valid arguments (validated with pydantic)?
   3. `tool_execution`: did the tool run without an error?
+- **Hallucination proxy:** `tool_faithfulness` checks that every number in an answer, or its text, appears in a tool result. It needs no expected answer and no LLM, so it could run on every response. On real runs, 87% of answers were backed by tools, against 4.6% for a prompt that told the agent not to use them. It measures faithfulness to sources, not truth: most flagged answers were right but worked out in the model's head, so treat a flag as "unverified", not "wrong".
 - **Latency:** p50/p95, both **total** (what a user waits) and **excluding waits** (time inside requests).
 - **Cost:** tokens from the provider's response × a per-model price table; total and **per successful answer**.
 - **Retries:** counted by reason (`rate_limit`, `server_error`, `connection_error`).
@@ -144,7 +145,7 @@ def test_tool_error_rate_matches_injected():
     assert 0.07 < measured < 0.13
 ```
 
-The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 164 tests run in about 20 seconds and run in CI on every pull request.
+The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 179 tests run in about 20 seconds and run in CI on every pull request.
 
 ## Comparing versions
 
@@ -278,7 +279,7 @@ evalkit/
 datasets/hard.jsonl  the hard dataset (generated)
 scripts/build_hard_dataset.py  builds it, computing every expected answer
 prompts/           system prompt versions, for --prompt-file
-test/              164 tests, no network needed
+test/              179 tests, no network needed
 ```
 
 ## Known limitations
@@ -297,7 +298,8 @@ test/              164 tests, no network needed
 - [x] **Phase 2:** Gemini and OpenAI-compatible agents, retries, rate limits, quotas, tool-call scoring
 - [x] Harder dataset: 55 cases in 10 categories, with a per-category report
 - [ ] Evenly spaced, token-aware rate limiting
-- [ ] **Phase 3:** LLM-as-judge and groundedness scorers, calibrated against human labels
+- [x] Deterministic hallucination check against tool results
+- [ ] **Phase 3:** LLM-as-judge and groundedness scorers for open-ended answers, calibrated against human labels
 - [x] **Phase 4:** comparing versions with fairness checks, paired tests and confidence intervals
 - [x] **Phase 5:** regression gate in CI that blocks significant drops and new safety failures
 - [ ] **Phase 6:** dashboard

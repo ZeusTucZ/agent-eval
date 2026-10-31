@@ -72,6 +72,7 @@ def test_tool_loop_calls_the_tool_and_returns_the_final_answer():
     assert [(span.input_tokens, span.output_tokens) for span in trial.spans if span.kind == "llm"] == [(100, 20), (150, 35)]
     assert {score.scorer: score.value for score in scores} == {
         "exact_match": 1.0, "tool_selection": 1.0, "tool_arguments_valid": 1.0, "tool_execution": 1.0,
+        "tool_faithfulness": 1.0,
     }
 
     # The second request sent the model its own call plus the tool's result.
@@ -108,7 +109,9 @@ def test_answering_from_memory_is_caught_by_tool_selection():
     client = fake_client(final_answer("478128321"))
     _, scores = run(GeminiAgent(client=client, retry_policy=NO_WAIT))
 
-    assert {score.scorer: score.value for score in scores} == {"exact_match": 1.0, "tool_selection": 0.0}
+    assert {score.scorer: score.value for score in scores} == {
+        "exact_match": 1.0, "tool_selection": 0.0, "tool_faithfulness": 0.0,
+    }
 
 def test_endless_tool_calls_stop_at_max_steps():
     client = fake_client(*[function_call("calculator", a=1, operator="+", b=1) for _ in range(3)])

@@ -84,6 +84,7 @@ def test_tool_loop_calls_the_tool_and_returns_the_final_answer():
     assert [(span.input_tokens, span.output_tokens) for span in trial.spans if span.kind == "llm"] == [(120, 30), (200, 5)]
     assert {score.scorer: score.value for score in scores} == {
         "exact_match": 1.0, "tool_selection": 1.0, "tool_arguments_valid": 1.0, "tool_execution": 1.0,
+        "tool_faithfulness": 1.0,
     }
 
     # The second request holds the system prompt, the question, the assistant's tool call
