@@ -22,18 +22,26 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>agent-eval</h1>
-        <p className="subtitle">
-          Evaluation dashboard · API: {apiBaseUrl} · status:{" "}
-          <span
-            className={`status-badge ${
-              health === "ok" ? "status-ok" : health ? "status-bad" : ""
-            }`}
-          >
-            {health ?? "checking…"}
-          </span>
-        </p>
-        <nav>
+        <div className="brand-row">
+          <div className="brand-mark" aria-hidden="true">
+            æ
+          </div>
+          <div className="brand-text">
+            <p className="eyebrow">LLM agent evaluation</p>
+            <h1>agent-eval</h1>
+            <p className="subtitle">
+              Evaluation dashboard · API: {apiBaseUrl} · status:{" "}
+              <span
+                className={`status-badge ${
+                  health === "ok" ? "status-ok" : health ? "status-bad" : ""
+                }`}
+              >
+                {health ?? "checking…"}
+              </span>
+            </p>
+          </div>
+        </div>
+        <nav aria-label="Dashboard sections">
           <button type="button" onClick={() => setView({ page: "list" })} disabled={view.page === "list"}>
             Experiments
           </button>{" "}
@@ -44,7 +52,10 @@ export default function App() {
       </header>
       <main>
         {view.page === "list" ? (
-          <ExperimentsList onOpen={(id) => setView({ page: "detail", id })} />
+          <ExperimentsList
+            onOpen={(id) => setView({ page: "detail", id })}
+            onNewRun={() => setView({ page: "run" })}
+          />
         ) : view.page === "detail" ? (
           <ExperimentDetail
             id={view.id}
@@ -66,6 +77,7 @@ export default function App() {
           scores show “n/a”. The API token is kept only in this browser tab and is never
           saved in the repo.
         </p>
+        <p>FastAPI + React · deployed on Render</p>
       </footer>
     </div>
   );

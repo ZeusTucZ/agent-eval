@@ -42,7 +42,11 @@ export default function TrialsTable({ trials }: { trials: Trial[] }) {
                 <td>#{trial.id}</td>
                 <td>{trial.case_id}</td>
                 <td>{trial.attempt}</td>
-                <td>{trial.failure_type ?? "ok"}</td>
+                <td>
+                  <span className={`pill ${trial.failure_type ? "pill-bad" : "pill-good"}`}>
+                    {trial.failure_type ?? "ok"}
+                  </span>
+                </td>
                 <td>{ms(trialDurationMs(trial.spans))}</td>
                 <td>
                   {trial.spans.length}

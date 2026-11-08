@@ -116,12 +116,17 @@ export default function RunForm({ token, onTokenChange, onExperimentReady }: Pro
 
   return (
     <div>
-      <h2>New run</h2>
-      <p>
-        Runs execute on the server in the background; this page polls the job until it
-        finishes. Groq and Gemini runs spend the server&apos;s API quota — the mock agent
-        costs nothing and needs no provider key.
-      </p>
+      <div className="page-head">
+        <div>
+          <p className="section-label">Evaluate an agent</p>
+          <h2>New run</h2>
+          <p>
+            Runs execute on the server in the background; this page polls the job until it
+            finishes. Groq and Gemini runs spend the server&apos;s API quota — the mock
+            agent costs nothing and needs no provider key.
+          </p>
+        </div>
+      </div>
       <form onSubmit={handleSubmit} className="run-form">
         <label>
           API token (sent as X-API-Token header; never stored in the repo)
@@ -203,10 +208,11 @@ export default function RunForm({ token, onTokenChange, onExperimentReady }: Pro
       {error ? <p className="error">{error}</p> : null}
 
       {job ? (
-        <div>
+        <div className="job-card">
           <h3>Job {job.id}</h3>
           <p>
-            Status: <strong>{job.status}</strong>
+            Status:{" "}
+            <span className={`job-status job-${job.status}`}>{job.status}</span>
             {job.error ? ` — ${job.error}` : ""}
           </p>
           {job.status === "completed" && job.experiment_id !== null ? (

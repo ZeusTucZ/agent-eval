@@ -29,6 +29,12 @@ export default function LatencyChart({ p50, p95, p50Working, p95Working }: Props
       role="img"
       aria-label="Latency p50 and p95, total and excluding waits"
     >
+      <defs>
+        <linearGradient id="latency-grad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#6366f1" />
+          <stop offset="100%" stopColor="#8b5cf6" />
+        </linearGradient>
+      </defs>
       {bars.map((bar, i) => {
         const barWidth = Math.max((bar.value / max) * 380, bar.value > 0 ? 2 : 0);
         const y = 10 + i * rowH;

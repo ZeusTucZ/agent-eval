@@ -65,15 +65,21 @@ export default function ExperimentDetail({ id, token, onTokenChange, onBack }: P
   return (
     <div>
       <button type="button" onClick={onBack}>← Back to experiments</button>
-      <h2>
-        Experiment {experiment.id}: {experiment.name}
-      </h2>
-      <p>
-        {experiment.model} · dataset {experiment.dataset_name}
-        {experiment.dataset_version ? ` (v ${experiment.dataset_version})` : ""} ·{" "}
-        {experiment.attempts} attempt{experiment.attempts === 1 ? "" : "s"} · config{" "}
-        {experiment.config_version} · {new Date(experiment.created_at).toLocaleString()}
-      </p>
+      <div className="page-head">
+        <div>
+          <p className="section-label">Experiment {experiment.id}</p>
+          <h2>{experiment.name}</h2>
+          <p>
+            {experiment.model} · dataset {experiment.dataset_name}
+            {experiment.dataset_version ? ` (v ${experiment.dataset_version})` : ""} ·{" "}
+            {experiment.attempts} attempt{experiment.attempts === 1 ? "" : "s"} · config{" "}
+            {experiment.config_version} · {new Date(experiment.created_at).toLocaleString()}
+          </p>
+        </div>
+        <span className={`pill ${experiment.pass_rate >= 0.9 ? "pill-good" : experiment.pass_rate >= 0.7 ? "pill-warn" : "pill-bad"}`}>
+          Pass rate {pct(experiment.pass_rate)}
+        </span>
+      </div>
 
       <div className="metric-grid">
         <MetricCard label="Pass rate" value={pct(experiment.pass_rate)} sub={`${experiment.trial_count} trials`} />
