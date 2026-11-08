@@ -1,0 +1,151 @@
+:root {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #1a1a1a;
+  background: #fff;
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem 1.5rem 3rem;
+}
+
+header h1 {
+  margin-bottom: 0.25rem;
+}
+
+nav button,
+button {
+  cursor: pointer;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #999;
+  border-radius: 4px;
+  background: #f4f4f4;
+  color: #1a1a1a;
+}
+
+nav button:disabled,
+button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.data-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.75rem 0;
+}
+
+.data-table th,
+.data-table td {
+  border: 1px solid #ddd;
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.data-table th {
+  background: #f4f4f4;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.clickable:hover {
+  background: #f7f7f7;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.metric-card {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+}
+
+.metric-label {
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.metric-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.metric-sub {
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.latency-chart {
+  width: 100%;
+  max-width: 560px;
+  height: auto;
+}
+
+.chart-label {
+  font-size: 13px;
+  fill: #1a1a1a;
+}
+
+.chart-value {
+  font-size: 13px;
+  fill: #1a1a1a;
+}
+
+.chart-bar {
+  fill: #4a7fb5;
+}
+
+.run-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 520px;
+}
+
+.run-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.run-form input,
+.run-form select {
+  padding: 0.4rem;
+  border: 1px solid #999;
+  border-radius: 4px;
+}
+
+.run-form fieldset {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.error {
+  color: #a00;
+  font-weight: 600;
+}
+
+.footnote {
+  font-size: 0.85rem;
+  color: #555;
+}
+
+footer {
+  margin-top: 2rem;
+  border-top: 1px solid #ddd;
+  font-size: 0.85rem;
+  color: #555;
+}
