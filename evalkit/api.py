@@ -133,7 +133,7 @@ def _load_or_404(conn: sqlite3.Connection, experiment_id: int) -> Experiment:
     try:
         return storage.load_experiment(conn, experiment_id)
     except LookupError:
-        raise HTTPException(status_code=404, detail=f"no experiment with id {experiment_id}")
+        raise HTTPException(status_code=404, detail=f"no experiment with id {experiment_id}") from None
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +369,7 @@ def rescore_experiment(
         raise HTTPException(
             status_code=400,
             detail=f"unknown dataset {experiment.dataset_name!r}; cannot re-score",
-        )
+        ) from None
     scores = score_trials(dataset, trials)
     storage.replace_scores(conn, experiment_id, scores)
     return experiment_summary(experiment, trials, scores)

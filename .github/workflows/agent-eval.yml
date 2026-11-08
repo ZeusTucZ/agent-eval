@@ -1,14 +1,27 @@
 name: agent-eval
 
 # The regression gate: runs the agent on this change, compares it with the stored baseline
-# from main, and fails if quality dropped. It costs API quota, so it only runs when the
-# agent could have changed. agent-eval-baseline.yml keeps the baseline up to date.
+# from main, and fails if quality dropped. agent-eval-baseline.yml keeps the baseline up to date.
+#
+# A run uses about 140,000 tokens and Groq's free tier allows 200,000 a day, so only one
+# run fits in a day: four PRs checked at once used up the quota and none could be judged.
+# So it runs only on PRs labelled "run-agent-eval" (add the label when the PR is ready),
+# and only when files that can change the agent's answers changed.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - "evalkit/**"
+      # Not part of the agent the gate runs: the HTTP API, the LLM judge, calibration,
+      # re-scoring and the rag dataset's search tool.
+      - "!evalkit/api.py"
+      - "!evalkit/config.py"
+      - "!evalkit/judge.py"
+      - "!evalkit/calibrate.py"
+      - "!evalkit/rescore.py"
+      - "!evalkit/rag.py"
       - "prompts/**"
-      - "datasets/**"
+      - "datasets/hard.jsonl"
       - ".github/workflows/agent-eval.yml"
   workflow_dispatch:
 
@@ -32,8 +45,14 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Secrets aren't available to pull requests from forks, so the check can't run there.
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    # Only on PRs labelled run-agent-eval, and only from this repository: secrets aren't
+    # available to pull requests from forks. Adding some other label changes nothing, so
+    # it doesn't start the check again.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'run-agent-eval') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'run-agent-eval'))
     steps:
       - name: Check for the API key
         id: key

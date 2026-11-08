@@ -1,5 +1,7 @@
 # agent-eval
 
+[![tests](https://github.com/ZeusTucZ/agent-eval/actions/workflows/tests.yml/badge.svg)](https://github.com/ZeusTucZ/agent-eval/actions/workflows/tests.yml)
+
 A reliability and evaluation harness for LLM agents. It runs an agent over a dataset many times, traces every step, and measures what matters before you ship: **correctness, tool-call success, latency, cost, retries and failures**, with each failure labelled by its cause.
 
 It works with a deterministic **mock agent** (for testing the harness itself), **Gemini**, and any **OpenAI-compatible** provider such as **Groq** or a local **Ollama**.
@@ -250,7 +252,7 @@ Use an odd number of attempts, and more cases to catch smaller drops. The mock's
 
 ## Regression gate
 
-`evalkit.gate` turns a comparison into a decision, and [`.github/workflows/agent-eval.yml`](.github/workflows/agent-eval.yml) runs it on pull requests that change the agent, prompts or dataset. It runs the change, compares it with a stored baseline from `main`, then posts the result as a PR comment.
+`evalkit.gate` turns a comparison into a decision, and [`.github/workflows/agent-eval.yml`](.github/workflows/agent-eval.yml) runs it on pull requests labelled `run-agent-eval` that change the agent, its prompts or the `hard` dataset. It runs the change, compares it with a stored baseline from `main`, then posts the result as a PR comment.
 
 | Result | Decision | Exit code |
 |---|---|---|
@@ -267,11 +269,14 @@ Use an odd number of attempts, and more cases to catch smaller drops. The mock's
 
 A full run uses about 140,000 tokens, too many to run `main` again on every PR within a free daily quota. So [`agent-eval-baseline.yml`](.github/workflows/agent-eval-baseline.yml) runs `main` when the agent changes and once a week, and stores the results. A run damaged by rate limits never replaces the last good baseline. The trade-off is that the two runs no longer happen at the same time, and the report warns when the baseline is over 24 hours old.
 
+A run uses about 140,000 tokens and Groq's free tier allows 200,000 a day, so only one check fits in a day. When four pull requests were checked at once, the quota ran out and none could be judged. That's why the check is opt-in: add the `run-agent-eval` label to a pull request when it's ready, one a day. Changes to the API, the LLM judge, calibration or the rag dataset don't start it, since they don't change the agent the gate runs.
+
 To turn it on:
 
 1. Add a `GROQ_API_KEY` repository secret. Until then the check skips with a notice.
 2. Run the `agent-eval-baseline` workflow once. Without a baseline, the check reports "can't judge".
 3. To make it enforce anything, mark `gate` as a required check in the branch protection settings.
+4. Create the `run-agent-eval` label (`gh label create run-agent-eval`) and add it to a pull request to check it.
 
 Each check takes about 25 minutes. Allow a day between a baseline run and a check, since together they use about 280,000 tokens. Every check keeps its report and databases as a workflow artifact for 14 days; account IDs are removed from recorded error messages, because artifacts on a public repository can be downloaded.
 
