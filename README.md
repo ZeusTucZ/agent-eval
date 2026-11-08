@@ -21,6 +21,29 @@ Failures:         none
 
 *A real run against Groq. The gap between the two latency figures is explained in [What the live runs taught me](#what-the-live-runs-taught-me).*
 
+## Live demo
+
+**API (backend):** https://agent-eval-co10.onrender.com — live, verified 7 November 2026: `GET /health` returns `{"status": "ok"}` and `GET /api/experiments` returns an empty list. No experiment has been seeded in production yet, so the list is empty for now.
+
+**Dashboard:** pending — the React/Vite dashboard code is in this repo (`dashboard/`), but it has not been deployed as a Render Static Site yet, so there is no public dashboard URL. This section will link it once it is live.
+
+Architecture: FastAPI + SQLite en Render (sin disco persistente) detrás de un dashboard React/Vite. The production database is a plain SQLite file (`evalkit.db`) on the service's ephemeral filesystem, so data does not survive a redeploy or restart. A persistent disk (or a Postgres migration) is future work, not part of this deployment.
+
+The backend runs on Render's Free tier, which sleeps after a period of inactivity: the first request after a while can take around 50 seconds (cold start) before responding. That is expected, not an outage.
+
+### Run the API locally
+
+```bash
+pip install -e ".[dev]"
+python -m pytest
+uvicorn evalkit.api:app --reload
+curl http://127.0.0.1:8000/health
+```
+
+### How runs are protected
+
+All `GET` endpoints are public and read-only. `POST /api/runs` and `POST /api/experiments/{id}/rescore` require the `X-API-Token` header with the server's `API_TOKEN` value; without it, or with a wrong value, they return HTTP 401. The token lives only as an environment variable in Render, never in the repo, so a visitor cannot spend the Groq quota by launching runs.
+
 ## Why
 
 An agent that answers correctly in a demo can still be slow, expensive, flaky, or right for the wrong reason (answering from memory instead of using its tools). A single pass/fail number hides all of that. This project records **what actually happened in each step**, so a failure can be traced to its cause: the model, a tool, the API's rate limits, or the evaluation itself.
