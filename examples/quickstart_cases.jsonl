@@ -1,0 +1,8 @@
+{"input": "What is 1234 * 5678?", "expected_output": "7006652", "expected_tools": ["calculator"], "category": "arithmetic"}
+{"input": "What is 98765 - 4321?", "expected_output": "94444", "expected_tools": ["calculator"], "category": "arithmetic"}
+{"input": "What is 144 / 12?", "expected_output": "12", "expected_tools": ["calculator"], "category": "arithmetic"}
+{"input": "What is the population of Lisbon?", "expected_output": "545000", "expected_tools": ["population"], "category": "lookup"}
+{"input": "What is the population of Tallinn?", "expected_output": "457000", "expected_tools": ["population"], "category": "lookup"}
+{"input": "What is the population of Atlantis?", "expected_output": "unknown", "expected_tools": ["population"], "expects_tool_error": true, "category": "lookup"}
+{"input": "How many people live in Montevideo?", "expected_output": "1320000", "expected_tools": ["population"], "category": "lookup"}
+{"input": "Add seven and five.", "expected_output": "12", "expected_tools": ["calculator"], "category": "arithmetic"}

@@ -144,6 +144,47 @@ Re-score a saved experiment after changing a scorer, without calling the model a
 
 To use a model that isn't in the price table, add it to `PRICES` in [`evalkit/cost.py`](evalkit/cost.py). The run refuses to start without a price rather than reporting a misleading $0.
 
+## Evaluate your own agent
+
+Your agent stays your code. Write it as a function that takes the question and returns the answer, and wrap its model calls in `llm_call` and its tool calls in `tool`:
+
+```python
+from evalkit import llm_call, tool
+
+async def answer(question: str) -> str:
+    with llm_call("gpt-4o-mini") as call:
+        response = await client.chat.completions.create(...)
+        call.tokens(response.usage.prompt_tokens, response.usage.completion_tokens)
+    weather = await tool("get_weather", get_weather, city="Lisbon")
+    ...
+    return final_answer
+```
+
+Each wrapped call becomes a step in the trace, with its time, tokens, arguments, result or error. Everything else then works as for the built-in agents: failures labelled by the step that raised, every scorer, the report, `evalkit.compare` and the gate. Outside an evaluation the helpers just run what they wrap.
+
+Write your questions as JSON lines. Only `input` and `expected_output` are required, and every other field of the `hard` dataset is available (`expected_tools`, `category`, `must_not_contain`, `expects_tool_error`, `relevant_docs`):
+
+```json
+{"input": "What is the population of Lisbon?", "expected_output": "545000", "expected_tools": ["population"]}
+```
+
+Then run it:
+
+```bash
+.venv\Scripts\python -m evalkit.run --agent my_project.agents:answer --model gpt-4o-mini --price 0.15 0.60 --dataset my_cases.jsonl
+```
+
+- `--agent module.path:name` names a function (sync or async; a parameter called `case` gets the whole case instead of the question), or an object with the built-in agents' `run(case, attempt, tracer)` method.
+- `--model` names the model `llm_call` uses by default. If it isn't in the price table, pass `--price INPUT OUTPUT` in dollars per million tokens, or `--price 0 0` if you don't track cost.
+- A hash of the agent's source file is part of its version, so `evalkit.compare` can test two versions of your code even when the model and prompt are the same.
+- Raise `evalkit.ToolArgumentError` for arguments a tool can't accept: it's scored as the agent's bad call, not the tool's failure.
+
+To try it without an API key, [`examples/quickstart_agent.py`](examples/quickstart_agent.py) is a rule-based agent that gets two of its eight cases wrong on purpose. [`examples/groq_agent.py`](examples/groq_agent.py) is a real tool-calling LLM agent to copy from.
+
+```bash
+.venv\Scripts\python -m evalkit.run --agent examples.quickstart_agent:answer --model rules --price 0 0 --dataset examples/quickstart_cases.jsonl
+```
+
 ## Datasets
 
 | Dataset | Cases | Use |
@@ -321,13 +362,15 @@ evalkit/
   stats.py         McNemar's exact test and bootstrap confidence intervals
   compare.py       command line: fairness checks, paired comparison, verdict
   gate.py          command line: pass, block or can't judge, for CI
-  sample_data.py   datasets (arithmetic, mixed, hard, rag) and the tools each one uses
+  sample_data.py   datasets (arithmetic, mixed, hard, rag, or your own .jsonl) and their tools
+  sdk.py           llm_call and tool, to evaluate your own agent
   rag.py           document corpus, ChromaDB index and the search_docs tool
 datasets/hard.jsonl  the hard dataset (generated)
 datasets/rag.jsonl, rag_corpus.jsonl  the rag dataset and its documents (generated)
 scripts/build_hard_dataset.py  builds the hard dataset, computing every expected answer
 scripts/build_rag_dataset.py   builds the rag corpus and dataset
 prompts/           system prompt versions, for --prompt-file
+examples/          your own agent: a no-key quickstart and a Groq template
 test/              243 tests, no network needed
 ```
 

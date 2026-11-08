@@ -14,6 +14,39 @@ def load_jsonl(path: Path) -> list[EvaluationCase]:
         if line.strip()
     ]
 
+def load_dataset_file(path: Path) -> list[EvaluationCase]:
+    """Your own dataset: one JSON object per line, in the same form as datasets/hard.jsonl.
+
+    Only "input" and "expected_output" are required. "id" defaults to the line number. Errors
+    name the line, since a dataset is usually written by hand.
+    """
+    if not path.is_file():
+        raise ValueError(f"no dataset file at {path}")
+
+    cases = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            data = json.loads(line)
+            if not isinstance(data, dict):
+                raise ValueError("each line must be a JSON object")
+            data.setdefault("id", number)
+            cases.append(EvaluationCase.model_validate(data))
+        except ValueError as error:  # json.JSONDecodeError and pydantic's ValidationError are ValueErrors
+            raise ValueError(f"{path}, line {number}: {error}") from None
+
+    if not cases:
+        raise ValueError(f"{path} has no cases")
+    ids = [case.id for case in cases]
+    duplicates = sorted({case_id for case_id in ids if ids.count(case_id) > 1})
+    if duplicates:
+        raise ValueError(f"{path}: case ids must be unique; repeated: {duplicates}")
+    return cases
+
+def is_dataset_file(name: str) -> bool:
+    return name.endswith(".jsonl")
+
 def hard_cases() -> list[EvaluationCase]:
     """About 55 cases in 10 categories, built by scripts/build_hard_dataset.py."""
     return load_jsonl(DATASETS_DIR / "hard.jsonl")
@@ -41,7 +74,10 @@ def arithmetic_cases(count: int) -> list[EvaluationCase]:
     ]
 
 def dataset_by_name(name: str) -> list[EvaluationCase]:
-    """Rebuild a dataset from the name stored with an experiment, e.g. "mixed" or "arithmetic-100"."""
+    """Rebuild a dataset from the name stored with an experiment, e.g. "mixed", "arithmetic-100",
+    or the path of your own .jsonl file, relative to where the run was started."""
+    if is_dataset_file(name):
+        return load_dataset_file(Path(name))
     if name == "mixed":
         return mixed_cases()
     if name == "hard":
