@@ -88,6 +88,28 @@ flowchart LR
 - **Retries:** counted by reason (`rate_limit`, `server_error`, `connection_error`).
 - **Failures, labelled by cause:** `tool_error`, `llm_error`, `timeout` (a step hung), `timeout_after_rate_limit` (ran out of time waiting to retry), `quota_exhausted`, `max_steps_exceeded`, and three model failures: `output_truncated` (hit the output-token limit before answering), `empty_output` (finished without saying anything) and `invalid_model_output` (e.g. a malformed tool call).
 
+## LLM judge, checked against your own labels
+
+Some answers can't be scored by matching strings: "3 years" answers "How long is the warranty?" when the expected answer is "3", and a sentence can name only facts from its sources and still draw a conclusion they don't support. `evalkit.judge` asks a second model, `llama-3.3-70b-versatile` on Groq by default, for a pass or fail verdict on a saved experiment's answers, under one of two rubrics:
+
+- `groundedness`: is every claim in the answer supported by the tool results the agent received?
+- `correctness`: does the answer say the same thing as the expected answer, whatever the wording?
+
+```bash
+.venv\Scripts\python -m evalkit.judge 12 --rubric groundedness
+```
+
+A judge is a model too, so its scores are only as good as its agreement with a person. `evalkit.calibrate` measures that agreement. You label a fixed random sample yourself, seeing the same material as the judge and never its verdict. The labels are saved as you go, so labelling can stop and resume. The command then reports how often you and the judge agree, Cohen's kappa (agreement beyond chance, which a judge that passes everything can't fake), both pass rates, and every disagreement with the judge's reason:
+
+```bash
+.venv\Scripts\python -m evalkit.calibrate label 12 --rubric groundedness --sample 50
+```
+```bash
+.venv\Scripts\python -m evalkit.calibrate agree 12 --rubric groundedness
+```
+
+Judge scores are stored as `judge_<rubric>` and tagged with a hash of the judge's model and prompt, since agreement measured on one judge says nothing about another. `evalkit.rescore` replaces only the built-in scorers' scores, so it never throws away a judge's paid-for scores. The judge's prompt treats the material as data, which matters because the `rag` corpus carries prompt injections and they reach the judge as sources.
+
 ## Reliability features
 
 - **Retries with exponential backoff and jitter.** Each attempt gets its own span, so retries are visible in the trace. The wait respects the server's own hint (Gemini's `retryDelay`, HTTP `retry-after`). The OpenAI SDK's built-in retries are turned off so none are hidden.
@@ -194,7 +216,7 @@ def test_tool_error_rate_matches_injected():
     assert 0.07 < measured < 0.13
 ```
 
-The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 248 tests run in about 20 seconds and run in CI on every pull request.
+The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 275 tests run in about 20 seconds and run in CI on every pull request.
 
 ## Comparing versions
 
@@ -327,6 +349,8 @@ evalkit/
   stats.py         McNemar's exact test and bootstrap confidence intervals
   compare.py       command line: fairness checks, paired comparison, verdict
   gate.py          command line: pass, block or can't judge, for CI
+  judge.py         command line: LLM-as-judge scores (groundedness, correctness)
+  calibrate.py     command line: label answers yourself, measure the judge's agreement
   sample_data.py   datasets (arithmetic, mixed, hard, rag) and the tools each one uses
   rag.py           document corpus, ChromaDB index and the search_docs tool
 datasets/hard.jsonl  the hard dataset (generated)
@@ -334,7 +358,7 @@ datasets/rag.jsonl, rag_corpus.jsonl  the rag dataset and its documents (generat
 scripts/build_hard_dataset.py  builds the hard dataset, computing every expected answer
 scripts/build_rag_dataset.py   builds the rag corpus and dataset
 prompts/           system prompt versions, for --prompt-file
-test/              248 tests, no network needed
+test/              275 tests, no network needed
 ```
 
 ## Known limitations
@@ -356,7 +380,7 @@ test/              248 tests, no network needed
 - [x] Deterministic hallucination check against tool results
 - [x] RAG dataset: a ChromaDB-backed search tool over a fictional company's documents, 45 cases in 6 categories
 - [x] Retrieval scorers (recall of the relevant documents) and a report that separates retrieval failures from answer failures
-- [ ] **Phase 3:** LLM-as-judge and groundedness scorers for open-ended answers, calibrated against human labels
+- [ ] **Phase 3:** LLM-as-judge and groundedness scorers for open-ended answers, calibrated against human labels. The judge, rubrics and calibration tools are built; the human-labelled sample that calibrates them isn't yet
 - [x] **Phase 4:** comparing versions with fairness checks, paired tests and confidence intervals
 - [x] **Phase 5:** regression gate in CI that blocks significant drops and new safety failures
 - [ ] **Phase 6:** dashboard

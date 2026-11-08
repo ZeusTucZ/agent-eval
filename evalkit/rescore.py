@@ -2,7 +2,7 @@ import argparse
 
 from evalkit import storage
 from evalkit.sample_data import dataset_by_name
-from evalkit.scorers import score_trials
+from evalkit.scorers import SCORER_NAMES, score_trials
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -17,7 +17,8 @@ def main() -> None:
     trials = storage.load_trials(conn, args.experiment_id)
 
     scores = score_trials(dataset_by_name(experiment.dataset_name), trials)
-    storage.replace_scores(conn, args.experiment_id, scores)
+    # Only the built-in scorers' scores are replaced; an LLM judge's (evalkit.judge) are kept.
+    storage.replace_scores(conn, args.experiment_id, scores, SCORER_NAMES)
 
     print(f"Re-scored {len(trials)} trials of experiment {args.experiment_id} ({len(scores)} scores)")
 

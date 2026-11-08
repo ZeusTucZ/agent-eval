@@ -38,7 +38,7 @@ from evalkit.cost import PRICES, total_cost
 from evalkit.models import Experiment, Score, Trial
 from evalkit.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, EMBEDDINGS, MAX_TOP_K
 from evalkit.report import latency_percentiles, mean_score, retrieval_diagnosis
-from evalkit.scorers import score_trials
+from evalkit.scorers import SCORER_NAMES, score_trials
 
 app = FastAPI(title="agent-eval API", version="0.1.0")
 
@@ -483,6 +483,6 @@ def rescore_experiment(
             status_code=400,
             detail=f"unknown dataset {experiment.dataset_name!r}; cannot re-score",
         ) from None
-    scores = score_trials(dataset, trials)
-    storage.replace_scores(conn, experiment_id, scores)
-    return experiment_summary(experiment, trials, scores)
+    # Only the built-in scorers' scores are replaced; an LLM judge's are kept.
+    storage.replace_scores(conn, experiment_id, score_trials(dataset, trials), SCORER_NAMES)
+    return experiment_summary(experiment, trials, storage.load_scores(conn, experiment_id))
