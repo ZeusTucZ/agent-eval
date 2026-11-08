@@ -73,6 +73,8 @@ export interface Trial {
   failure_type: string | null;
   spans: Span[];
   scores: Score[];
+  // A conversation's messages, for cases with several turns.
+  transcript?: { role: string; content: string }[] | null;
   // The question it answered; null when the server can't find the dataset.
   case?: { input: string; expected_output: string; category: string } | null;
 }

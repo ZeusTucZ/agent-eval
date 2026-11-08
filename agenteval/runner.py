@@ -76,6 +76,7 @@ async def run_experiment(
                 output=output,
                 failure_type=failure_type,
                 spans=tracer.spans,
+                transcript=tracer.transcript,
             )
             if on_trial is not None:
                 on_trial(trial)

@@ -177,3 +177,75 @@ def test_the_response_cache_replays_identical_requests_per_attempt(tmp_path):
     again = evaluate(make_agent(), cases, model="gpt-4o-mini", price=(0.15, 0.6), attempts=2)
     assert len(calls) == 2  # everything replayed
     assert again.pass_rate == 1.0 and first.cost > 0 and again.cost == 0
+
+
+# --- Conversations ---
+
+conversation = EvaluationCase(
+    id=1, expected_output="Your refund is on its way.", must_not_contain=["password"],
+    turns=["I want to return my order.", "It's order 123.", "Thanks, when do I get my money?"],
+)
+
+def test_a_conversation_case_takes_its_question_from_the_last_turn():
+    assert conversation.input == "Thanks, when do I get my money?"
+    with pytest.raises(ValueError, match="input"):
+        EvaluationCase(id=2, expected_output="x")
+
+def test_the_agent_answers_each_turn_and_the_transcript_is_kept(tmp_path):
+    from agenteval import evaluate, storage
+
+    seen = []
+
+    async def support_agent(messages):
+        seen.append(len(messages))
+        last = messages[-1]["content"]
+        if "return" in last:
+            return "Sure, what's the order number?"
+        if "order 123" in last:
+            return "Found it. The refund is approved."
+        return "Your refund is on its way."
+
+    results = evaluate(support_agent, [conversation], model="m", price=(0, 0), attempts=1, db=tmp_path / "c.db")
+    trial = results.trials[0]
+    assert seen == [1, 3, 5]  # the conversation so far, each time
+    assert [m["role"] for m in trial.transcript] == ["user", "assistant"] * 3
+    assert trial.output == "Your refund is on its way." and results.pass_rate == 1.0
+    stored = storage.load_trials(storage.connect(tmp_path / "c.db"), results.experiment_id)[0]
+    assert stored.transcript == trial.transcript
+
+def test_forbidden_text_counts_in_every_reply_not_only_the_last():
+    from agenteval import evaluate
+
+    async def leaky(messages):
+        return "Tell me your password." if len(messages) == 1 else "Your refund is on its way."
+
+    results = evaluate(leaky, [conversation], model="m", price=(0, 0), attempts=1)
+    assert results.score("avoids_forbidden_text") == 0.0
+    assert results.pass_rate == 1.0  # the last answer was right; the leak is caught separately
+
+def test_conversations_need_an_agent_that_takes_messages():
+    from agenteval import evaluate
+
+    results = evaluate(lambda question: "x", [conversation], model="m", price=(0, 0), attempts=1)
+    assert results.trials[0].failure_type == "agent_error"
+
+def test_the_judge_sees_the_whole_conversation():
+    from agenteval.judge import RUBRICS, build_prompt
+
+    trial = Trial(id=1, case_id=1, attempt=1, output="On its way.", transcript=[
+        {"role": "user", "content": "I want to return my order."},
+        {"role": "assistant", "content": "What's the order number?"},
+        {"role": "user", "content": "Thanks, when do I get my money?"},
+        {"role": "assistant", "content": "On its way."},
+    ])
+    prompt = build_prompt(RUBRICS["answer_relevance"], conversation, trial)
+    assert "<conversation>" in prompt and "What's the order number?" in prompt
+    assert "<answer>\nOn its way.\n</answer>" in prompt
+
+def test_dataset_files_accept_turns_without_input(tmp_path):
+    from agenteval.sample_data import load_dataset_file
+
+    path = tmp_path / "chat.jsonl"
+    path.write_text(json.dumps({"turns": ["hi", "what's 2+2?"], "expected_output": "4"}) + "\n")
+    (case,) = load_dataset_file(path)
+    assert case.input == "what's 2+2?" and case.turns == ["hi", "what's 2+2?"]

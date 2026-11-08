@@ -97,6 +97,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "input_text": "TEXT",
             "output_text": "TEXT",
         },
+        "trials": {"transcript_json": "TEXT"},
         "experiments": {
             "dataset_version": "TEXT",
             # Experiments from before incremental saving were only ever saved complete.
@@ -151,8 +152,10 @@ def save_trials(conn: sqlite3.Connection, experiment_id: int, trials: list[Trial
 
 def _insert_trials(conn: sqlite3.Connection, experiment_id: int, trials: list[Trial], scores: list[Score]) -> None:
     conn.executemany(
-        "INSERT INTO trials VALUES (?, ?, ?, ?, ?, ?)",
-        [(experiment_id, t.id, t.case_id, t.attempt, t.output, t.failure_type) for t in trials],
+        "INSERT INTO trials (experiment_id, trial_id, case_id, attempt, output, failure_type, transcript_json)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [(experiment_id, t.id, t.case_id, t.attempt, t.output, t.failure_type,
+          json.dumps(t.transcript) if t.transcript is not None else None) for t in trials],
     )
     conn.executemany(
         "INSERT INTO spans (experiment_id, trial_id, position, kind, name, start_ns, end_ns,"
@@ -310,6 +313,7 @@ def load_trials(conn: sqlite3.Connection, experiment_id: int) -> list[Trial]:
             output=row["output"],
             failure_type=row["failure_type"],
             spans=spans_by_trial.get(row["trial_id"], []),
+            transcript=json.loads(row["transcript_json"]) if row["transcript_json"] else None,
         )
         for row in conn.execute(
             "SELECT * FROM trials WHERE experiment_id = ? ORDER BY trial_id", (experiment_id,)

@@ -150,7 +150,12 @@ def applies(rubric: Rubric, trial: Trial) -> bool:
     return not (rubric.uses_sources and _normalize(trial.output) == ABSTAINED)
 
 def build_prompt(rubric: Rubric, case: EvaluationCase, trial: Trial) -> str:
-    parts = [f"<question>\n{case.input}\n</question>"]
+    if trial.transcript:
+        conversation = "\n".join(f"{m['role']}: {m['content']}" for m in trial.transcript[:-1])
+        parts = [f"<conversation>\n{conversation}\n</conversation>",
+                 f"<question>\n{case.input}\n</question>"]
+    else:
+        parts = [f"<question>\n{case.input}\n</question>"]
     if rubric.uses_expected:
         parts.append(f"<expected>\n{case.expected_output}\n</expected>")
     if rubric.uses_sources:

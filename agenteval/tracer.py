@@ -15,6 +15,7 @@ class Tracer:
     def __init__(self, trial_id: int):
         self.trial_id = trial_id
         self.spans: list[Span] = []
+        self.transcript: list[dict[str, str]] | None = None  # set by agents that hold a conversation
 
     @contextmanager
     def span(self, kind: str, name: str):

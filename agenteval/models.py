@@ -3,11 +3,11 @@ import json
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 class EvaluationCase(BaseModel):
     id: int
-    input: str
+    input: str = ""  # for a conversation, defaults to its last user turn
     expected_output: str
     expected_tool: str | None = None
     # Every tool the case needs, repeated once per call it needs: ["calculator", "calculator"]
@@ -27,6 +27,17 @@ class EvaluationCase(BaseModel):
     expected_trajectory: list[str] | None = None
     # The most tool calls a good run needs; more counts against step_efficiency.
     max_tool_calls: int | None = None
+    # A conversation: the user's messages in order. The agent answers each in turn and
+    # expected_output is checked against its last reply.
+    turns: list[str] | None = None
+
+    @model_validator(mode="after")
+    def _question(self) -> "EvaluationCase":
+        if not self.input:
+            if not self.turns:
+                raise ValueError('a case needs "input" (the question) or "turns" (a conversation)')
+            self.input = self.turns[-1]
+        return self
 
     @property
     def required_tools(self) -> list[str] | None:
@@ -60,6 +71,8 @@ class Trial(BaseModel):
     output: str | None = None
     failure_type: str | None = None
     spans: list[Span] = []
+    # For a conversation: every message, [{"role": "user" | "assistant", "content": ...}].
+    transcript: list[dict[str, str]] | None = None
 
     @property
     def duration_ms(self) -> float:
@@ -121,7 +134,7 @@ class Experiment(BaseModel):
 # Fields added to EvaluationCase after dataset versions were first stored. Left out of the
 # hash while unset, so adding a field doesn't make every saved experiment look like it ran
 # on a different dataset (compare and the gate refuse to compare those).
-FIELDS_ADDED_LATER = {"relevant_docs", "expected_trajectory", "max_tool_calls"}
+FIELDS_ADDED_LATER = {"relevant_docs", "expected_trajectory", "max_tool_calls", "turns"}
 
 def dataset_version(cases: list[EvaluationCase]) -> str:
     """Content hash of a dataset: if any case changes, runs are no longer comparable."""

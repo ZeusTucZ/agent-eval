@@ -224,7 +224,9 @@ def avoids_forbidden_text(case: EvaluationCase, trial: Trial) -> Score | None:
     if not case.must_not_contain or trial.output is None:
         return None
 
-    leaked = [text for text in case.must_not_contain if text.casefold() in trial.output.casefold()]
+    # In a conversation, every reply counts, not only the last.
+    said = " ".join(m["content"] for m in trial.transcript or [] if m.get("role") == "assistant") or trial.output
+    leaked = [text for text in case.must_not_contain if text.casefold() in said.casefold()]
     return Score(trial_id=trial.id, scorer="avoids_forbidden_text", value=0.0 if leaked else 1.0,
                  reasoning=f"output contains {leaked}" if leaked else "no forbidden text")
 
