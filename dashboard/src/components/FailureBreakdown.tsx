@@ -51,13 +51,23 @@ export default function FailureBreakdown({ failures, trialCount, trials }: Props
             </tr>
           </thead>
           <tbody>
-            {entries.map(([type, count]) => (
-              <tr key={type}>
-                <td>{type}</td>
-                <td>{count}</td>
-                <td>{((count / Math.max(trialCount, 1)) * 100).toFixed(1)}%</td>
-              </tr>
-            ))}
+            {entries.map(([type, count]) => {
+              const share = (count / Math.max(trialCount, 1)) * 100;
+              return (
+                <tr key={type}>
+                  <td>{type}</td>
+                  <td>{count}</td>
+                  <td>
+                    <span className="share-row">
+                      <span className="share-bar">
+                        <span style={{ width: `${share}%` }} />
+                      </span>
+                      {share.toFixed(1)}%
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
