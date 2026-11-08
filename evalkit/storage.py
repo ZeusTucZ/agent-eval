@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 
@@ -133,10 +134,25 @@ def save_experiment(
 
     return experiment_id
 
-def replace_scores(conn: sqlite3.Connection, experiment_id: int, scores: list[Score]) -> None:
-    """Swap in new scores for stored trials, e.g. after fixing a scorer. The trials stay as they were."""
+def replace_scores(
+    conn: sqlite3.Connection,
+    experiment_id: int,
+    scores: list[Score],
+    scorers: Iterable[str] | None = None,
+) -> None:
+    """Swap in new scores for stored trials, e.g. after fixing a scorer. The trials stay as they were.
+
+    With `scorers`, only scores by those names are replaced and the rest are kept: re-running
+    the cheap scorers must not throw away an LLM judge's scores, which cost money to make.
+    """
     with conn:
-        conn.execute("DELETE FROM scores WHERE experiment_id = ?", (experiment_id,))
+        if scorers is None:
+            conn.execute("DELETE FROM scores WHERE experiment_id = ?", (experiment_id,))
+        else:
+            names = list(scorers)
+            assert {score.scorer for score in scores} <= set(names), "a score outside `scorers` would be duplicated"
+            conn.executemany("DELETE FROM scores WHERE experiment_id = ? AND scorer = ?",
+                             [(experiment_id, name) for name in names])
         conn.executemany(
             "INSERT INTO scores VALUES (?, ?, ?, ?, ?)",
             [(experiment_id, s.trial_id, s.scorer, s.value, s.reasoning) for s in scores],

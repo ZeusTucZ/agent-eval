@@ -148,6 +148,9 @@ DEFAULT_SCORERS: list[Scorer] = [
     exact_match, tool_selection, tool_arguments_valid, tool_execution, tool_faithfulness, avoids_forbidden_text,
 ]
 
+# What each built-in scorer calls its scores: the function's name.
+SCORER_NAMES = [scorer.__name__ for scorer in DEFAULT_SCORERS]
+
 def score_trials(
     dataset: list[EvaluationCase],
     trials: list[Trial],

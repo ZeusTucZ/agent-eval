@@ -17,6 +17,23 @@ def mcnemar_exact(improved: int, regressed: int) -> float:
     tail = sum(comb(flips, k) for k in range(smaller_side + 1)) / 2 ** flips
     return min(1.0, 2 * tail)
 
+def cohens_kappa(first: list[bool], second: list[bool]) -> float:
+    """Agreement between two raters beyond what chance would give: 1 is perfect, 0 is chance.
+
+    Plain agreement flatters a judge when most answers pass: one that passes everything
+    agrees 90% of the time with labels that are 90% passes. Kappa scores that judge 0.
+    """
+    if len(first) != len(second) or not first:
+        raise ValueError("need two equally long, non-empty lists of labels")
+
+    size = len(first)
+    observed = sum(a == b for a, b in zip(first, second)) / size
+    first_pass, second_pass = sum(first) / size, sum(second) / size
+    expected = first_pass * second_pass + (1 - first_pass) * (1 - second_pass)
+    if expected == 1.0:
+        return 1.0  # both raters gave one label to everything: agreement is total but says little
+    return (observed - expected) / (1 - expected)
+
 @dataclass
 class Interval:
     mean: float
