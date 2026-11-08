@@ -1,0 +1,12 @@
+# Never bake secrets or local state into the image.
+.env
+.git
+__pycache__
+*.py[cod]
+*.db
+.venv
+.pytest_cache
+*.egg-info
+# The React dashboard (Phase 4) has its own build; its dependencies
+# do not belong in the API image.
+dashboard/node_modules
