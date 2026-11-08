@@ -27,7 +27,7 @@ Failures:         none
 
 **Dashboard:** pending — the React/Vite dashboard code is in this repo (`dashboard/`), but it has not been deployed as a Render Static Site yet, so there is no public dashboard URL. This section will link it once it is live.
 
-Architecture: FastAPI + SQLite en Render (sin disco persistente) detrás de un dashboard React/Vite. The production database is a plain SQLite file (`evalkit.db`) on the service's ephemeral filesystem, so data does not survive a redeploy or restart. A persistent disk (or a Postgres migration) is future work, not part of this deployment.
+Architecture: FastAPI + SQLite on Render (no persistent disk), behind a React/Vite dashboard. The production database is a plain SQLite file (`evalkit.db`) on the service's ephemeral filesystem, so data does not survive a redeploy or restart. [`render.yaml`](render.yaml) describes this same setup. A persistent disk (or a Postgres migration) is future work, not part of this deployment.
 
 The backend runs on Render's Free tier, which sleeps after a period of inactivity: the first request after a while can take around 50 seconds (cold start) before responding. That is expected, not an outage.
 

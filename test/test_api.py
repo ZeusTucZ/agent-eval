@@ -173,9 +173,10 @@ def test_run_rejects_unknown_model(client):
     assert response.status_code == 400
 
 
-def test_run_rejects_real_agent_without_key(client):
-    # No GROQ_API_KEY in this test environment, so groq must refuse
-    # before spending anything.
+def test_run_rejects_real_agent_without_key(client, monkeypatch):
+    # Without GROQ_API_KEY, groq must refuse before spending anything. Removed
+    # explicitly, since a developer's shell may have a real key set.
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     response = client.post(
         "/api/runs",
         json={"agent": "groq", "dataset": "mixed", "attempts": 1},

@@ -8,13 +8,12 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
-    disk:
-      name: agent-eval-data
-      mountPath: /data
-      sizeGB: 1
+    # Free tier: no persistent disk, so the SQLite file (evalkit.db, the default
+    # DATABASE_PATH) is lost on every redeploy or restart. To keep data, move to
+    # a paid plan, add a `disk` mounted at /data and set DATABASE_PATH to a file
+    # under it.
+    plan: free
     envVars:
-      - key: DATABASE_PATH
-        value: /data/agent-eval.db
       - key: API_TOKEN
         sync: false
       - key: GROQ_API_KEY
