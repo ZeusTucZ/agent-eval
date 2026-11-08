@@ -132,7 +132,8 @@ def to_html(data: dict, rows: list[dict]) -> str:
     def bar(value: float | None) -> str:
         return "" if value is None else f'<div class="bar"><span style="width:{value * 100:.0f}%"></span></div>'
 
-    tone = "good" if data["pass_rate"] >= 0.9 else "bad" if data["pass_rate"] < 0.7 else ""
+    rate = data["pass_rate"]
+    tone = "" if rate is None else "good" if rate >= 0.9 else "bad" if rate < 0.7 else ""
     parts = [
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>",
         "<meta name='viewport' content='width=device-width,initial-scale=1'>",

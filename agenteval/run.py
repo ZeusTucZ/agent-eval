@@ -4,7 +4,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from agenteval import storage
-from agenteval.cost import PRICES
+from agenteval.cost import PRICES, with_unpriced_models
 from agenteval.models import AgentConfig, EvaluationCase, Price, Trial
 from agenteval.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, EMBEDDINGS, MAX_TOP_K, retrieval_config
 from agenteval.execution import RunPlan, aexecute
@@ -149,10 +149,7 @@ def prices_for(args, trials: list[Trial] | None = None) -> dict[str, Price]:
     if args.price is not None:
         prices[args.model] = Price(input_per_million=args.price[0], output_per_million=args.price[1])
     if trials is not None:
-        unpriced = sorted({span.name for trial in trials for span in trial.spans
-                           if span.kind == "llm" and span.name not in prices})
-        for model in unpriced:
-            prices[model] = Price(input_per_million=0.0, output_per_million=0.0)
+        prices, unpriced = with_unpriced_models(prices, trials)
         if unpriced:
             print(f"WARNING: no price for {', '.join(unpriced)}; their cost is recorded as $0. "
                   "Name the model in llm_call() as --model, or add it to PRICES in agenteval/cost.py.")

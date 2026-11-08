@@ -39,6 +39,13 @@ BUILT_IN_PRICES: dict[str, Price] = {
 # The built-in table, with any prices you've updated or added taking precedence.
 PRICES: dict[str, Price] = {**BUILT_IN_PRICES, **load_user_prices()}
 
+def with_unpriced_models(prices: dict[str, Price], trials: list[Trial]) -> tuple[dict[str, Price], list[str]]:
+    """Add every model the trials called that has no price, at $0, and say which they were:
+    better a run's cost under-reported with a warning than a finished run that can't report."""
+    unpriced = sorted({span.name for trial in trials for span in trial.spans
+                       if span.kind == "llm" and span.name not in prices})
+    return {**prices, **{model: Price(input_per_million=0.0, output_per_million=0.0) for model in unpriced}}, unpriced
+
 def span_cost(span: Span, prices: dict[str, Price]) -> float:
     if span.kind != "llm":
         return 0.0

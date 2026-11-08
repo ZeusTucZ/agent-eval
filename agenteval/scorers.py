@@ -32,7 +32,9 @@ def _same_answer(output: str, expected: str) -> bool:
         return abs(output_number - expected_number) <= 0.01
     return _normalize(output) == _normalize(expected)
 
-def exact_match(case: EvaluationCase, trial: Trial) -> Score:
+def exact_match(case: EvaluationCase, trial: Trial) -> Score | None:
+    if not case.expected_output:
+        return None  # no reference answer (e.g. imported production traces): nothing to match
     if trial.output is None:
         return Score(trial_id=trial.id, scorer="exact_match", value=0.0,
                      reasoning=f"no output ({trial.failure_type})")

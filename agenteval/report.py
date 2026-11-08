@@ -149,7 +149,7 @@ def summary_data(
         "attempts": experiment.attempts,
         "created_at": experiment.created_at.isoformat(),
         "environment": experiment.environment,
-        "pass_rate": mean_score(exact_match_scores),
+        "pass_rate": mean_score(exact_match_scores) if exact_match_scores else None,
         "by_category": {
             category: {"pass_rate": rate, "trials": count}
             for category, (rate, count) in (pass_rate_by_category(trials, scores, cases) if cases else {}).items()
@@ -197,7 +197,8 @@ def summarize(
     where = describe_environment(experiment.environment)
     if where:
         lines.append(f"Ran with:         {where}")
-    lines.append(f"Pass rate:        {mean_score(exact_match_scores):.1%}")
+    lines.append(f"Pass rate:        {mean_score(exact_match_scores):.1%}" if exact_match_scores
+                 else "Pass rate:        n/a (no expected answers to match)")
 
     # A single pass rate hides which kind of question fails, so break it down when there
     # is more than one category.
