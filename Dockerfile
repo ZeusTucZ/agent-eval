@@ -5,7 +5,8 @@ FROM python:3.12-slim AS builder
 WORKDIR /app
 COPY pyproject.toml ./
 COPY agenteval ./agenteval/
-RUN pip install --no-cache-dir -e .
+# The server extra: fastapi and uvicorn aren't core dependencies since 1.0.
+RUN pip install --no-cache-dir -e ".[server]"
 
 FROM python:3.12-slim
 WORKDIR /app

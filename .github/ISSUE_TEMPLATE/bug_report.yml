@@ -1,0 +1,21 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations: { required: true }
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: The command or code you ran. Remove API keys and anything private first.
+      render: shell
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: agenteval version (agenteval --version), Python version and OS
+    validations: { required: true }

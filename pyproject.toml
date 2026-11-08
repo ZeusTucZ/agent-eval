@@ -53,12 +53,12 @@ Documentation = "https://zeustucz.github.io/agent-eval/"
 Issues = "https://github.com/ZeusTucZ/agent-eval/issues"
 Changelog = "https://github.com/ZeusTucZ/agent-eval/blob/main/CHANGELOG.md"
 
-[tool.setuptools]
-packages = ["agenteval", "agenteval.integrations"]
+[tool.setuptools.packages.find]
+include = ["agenteval*"]
 
 [tool.setuptools.package-data]
 # The built-in datasets, and the dashboard once built into agenteval/static (see the release workflow).
-agenteval = ["data/*.jsonl", "static/**/*", "py.typed"]
+"*" = ["*.jsonl", "py.typed", "*.html", "*.js", "*.css", "*.woff", "*.woff2", "*.svg", "*.ico"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -66,6 +66,7 @@ testpaths = ["test"]
 
 [tool.ruff]
 line-length = 120
+target-version = "py311"  # also flags syntax newer than the oldest Python supported
 extend-exclude = ["dashboard"]
 
 [tool.ruff.lint]

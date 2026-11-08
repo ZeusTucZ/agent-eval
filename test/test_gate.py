@@ -189,3 +189,16 @@ def test_account_ids_are_redacted_from_recorded_text():
     assert "org_fake123" not in message
     assert "org_REDACTED" in message
     assert "tokens per day" in message
+
+
+def test_a_stricter_policy_blocks_inconclusive_results_and_low_pass_rates():
+    from agenteval.gate import Policy
+
+    a, b = make_data(outcomes(19)), make_data(outcomes(18), prompt="B")  # one case worse: can't tell
+    fairness = check_comparable(a, b)
+    result = compare_experiments(a, b, make_cases(20))
+    assert result.verdict == "Inconclusive"
+    assert decide(a, b, fairness, result).exit_code == PASS
+    assert decide(a, b, fairness, result, Policy(block_inconclusive=True)).exit_code == BLOCK
+    assert decide(a, b, fairness, result, Policy(min_pass_rate=0.95)).exit_code == BLOCK
+    assert decide(a, b, fairness, result, Policy(min_pass_rate=0.85)).exit_code == PASS

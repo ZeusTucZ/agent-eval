@@ -1,0 +1,65 @@
+name: agenteval gate
+description: >-
+  Block a pull request when your agent got worse: compares the latest experiment in two
+  agenteval databases (a baseline from main and this change) with a paired test, and fails
+  on a significant drop or a new safety failure.
+author: ZeusTucZ
+branding:
+  icon: check-circle
+  color: purple
+
+inputs:
+  baseline-db:
+    description: Database whose latest experiment is the baseline (e.g. downloaded from a main-branch run).
+    required: true
+  candidate-db:
+    description: Database whose latest experiment is this change.
+    required: true
+  block-inconclusive:
+    description: Also block when a drop can't be ruled out, not only when one is shown.
+    default: "false"
+  min-pass-rate:
+    description: Also block when the change's pass rate is below this (0 to 1). Empty for no minimum.
+    default: ""
+  version:
+    description: agenteval-kit version to install.
+    default: "1.0.0"
+  python-version:
+    default: "3.12"
+
+outputs:
+  decision:
+    description: pass, block or cannot_judge
+    value: ${{ steps.gate.outputs.decision }}
+  report:
+    description: Path of the Markdown report, for a PR comment.
+    value: ${{ steps.gate.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install agenteval
+      shell: bash
+      run: pip install "agenteval-kit==${{ inputs.version }}"
+
+    - name: Decide
+      id: gate
+      shell: bash
+      run: |
+        set +e
+        args=()
+        [ "${{ inputs.block-inconclusive }}" = "true" ] && args+=(--block-inconclusive)
+        [ -n "${{ inputs.min-pass-rate }}" ] && args+=(--min-pass-rate "${{ inputs.min-pass-rate }}")
+        agenteval gate "${{ inputs.baseline-db }}" "${{ inputs.candidate-db }}" --markdown agenteval-report.md "${args[@]}"
+        code=$?
+        cat agenteval-report.md >> "$GITHUB_STEP_SUMMARY"
+        echo "report=agenteval-report.md" >> "$GITHUB_OUTPUT"
+        case "$code" in
+          0) echo "decision=pass" >> "$GITHUB_OUTPUT" ;;
+          1) echo "decision=block" >> "$GITHUB_OUTPUT"; echo "::error::agenteval: the change made the agent worse; see the job summary."; exit 1 ;;
+          *) echo "decision=cannot_judge" >> "$GITHUB_OUTPUT"; echo "::error::agenteval: can't judge this change; see the job summary."; exit 1 ;;
+        esac

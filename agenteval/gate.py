@@ -44,7 +44,17 @@ class Decision:
     exit_code: int
     reasons: list[str] = field(default_factory=list)
 
-def decide(a: ExperimentData, b: ExperimentData, fairness: Fairness, result: Comparison | None) -> Decision:
+@dataclass
+class Policy:
+    """How strict the gate is. The default blocks only what it can show: a significant drop or
+    a new safety failure. Stricter teams can also block Inconclusive results (small drops can
+    hide there; see `agenteval power`) or any run below a pass rate."""
+    block_inconclusive: bool = False
+    min_pass_rate: float | None = None
+
+def decide(a: ExperimentData, b: ExperimentData, fairness: Fairness, result: Comparison | None,
+           policy: Policy | None = None) -> Decision:
+    policy = policy or Policy()
     if fairness.errors:
         return Decision(CANNOT_JUDGE, fairness.errors)
 
@@ -67,6 +77,12 @@ def decide(a: ExperimentData, b: ExperimentData, fairness: Fairness, result: Com
     if result.verdict == "Worse":
         return Decision(BLOCK, [result.reason])
 
+    if policy.min_pass_rate is not None and result.pass_rate.b < policy.min_pass_rate:
+        return Decision(BLOCK, [f"pass rate {result.pass_rate.b:.1%} is below the required "
+                                f"{policy.min_pass_rate:.1%}", result.reason])
+
+    if result.verdict == "Inconclusive" and policy.block_inconclusive:
+        return Decision(BLOCK, [f"the change couldn't be shown to be safe, and this gate requires that: {result.reason}"])
     if result.verdict == "Inconclusive":
         return Decision(PASS, [f"no significant drop, but this doesn't prove the change is safe: {result.reason}"])
     return Decision(PASS, [result.reason])
@@ -142,7 +158,7 @@ def _load_latest(path: str) -> ExperimentData | None:
     experiment_id = storage.latest_experiment_id(conn)
     return load(conn, experiment_id) if experiment_id is not None else None
 
-def run_gate(baseline_path: str, candidate_path: str) -> tuple[Decision, str, str]:
+def run_gate(baseline_path: str, candidate_path: str, policy: Policy | None = None) -> tuple[Decision, str, str]:
     """Returns the decision, a Markdown report and a plain-text report."""
     a, b = _load_latest(baseline_path), _load_latest(candidate_path)
 
@@ -159,7 +175,7 @@ def run_gate(baseline_path: str, candidate_path: str) -> tuple[Decision, str, st
         except ValueError as error:
             fairness.errors.append(str(error))
 
-    decision = decide(a, b, fairness, result)
+    decision = decide(a, b, fairness, result, policy)
     text = format_comparison(a, b, fairness, result) if result is not None else ""
     summary = f"Gate: {HEADINGS[decision.exit_code]}\n" + "\n".join(f"  {reason}" for reason in decision.reasons)
     return decision, format_markdown(a, fairness, result, decision), f"{text}\n\n{summary}".strip()
@@ -169,11 +185,16 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("baseline_db", help="database whose latest experiment is the baseline")
     parser.add_argument("candidate_db", help="database whose latest experiment is the change")
     parser.add_argument("--markdown", help="also write the report to this file, for a PR comment")
+    parser.add_argument("--block-inconclusive", action="store_true",
+                        help="block when a drop can't be ruled out, not only when one is shown")
+    parser.add_argument("--min-pass-rate", type=float, metavar="RATE",
+                        help="block when the change's pass rate is below this, e.g. 0.85")
     args = parser.parse_args(argv)
 
     sys.stdout.reconfigure(errors="replace")
 
-    decision, markdown, text = run_gate(args.baseline_db, args.candidate_db)
+    policy = Policy(block_inconclusive=args.block_inconclusive, min_pass_rate=args.min_pass_rate)
+    decision, markdown, text = run_gate(args.baseline_db, args.candidate_db, policy)
     print(text)
     if args.markdown:
         Path(args.markdown).write_text(markdown, encoding="utf-8")

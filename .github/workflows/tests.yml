@@ -7,21 +7,31 @@ on:
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
+    name: pytest (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.11" }
+          - { os: ubuntu-latest, python: "3.12" }
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: windows-latest, python: "3.12" }
+          - { os: macos-latest, python: "3.12" }
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
           cache: pip
 
+      # dev includes every extra (gemini, server, rag), so no test is skipped for a missing one.
       - name: Install
-        # rag too: without chromadb, test_rag_dataset.py is skipped rather than run.
-        run: pip install -e ".[dev,rag]"
+        run: pip install -e ".[dev]" langchain-core
 
       - name: Run tests
-        run: pytest -v
+        run: pytest -q
 
   lint:
     runs-on: ubuntu-latest
@@ -35,7 +45,7 @@ jobs:
       - name: Install ruff
         run: pip install "ruff>=0.6"
 
-      # The rules are in pyproject.toml: real errors only, not style.
+      # The rules are in pyproject.toml: real errors, and syntax newer than Python 3.11.
       - name: Lint
         run: ruff check --output-format github .
 
@@ -57,6 +67,42 @@ jobs:
         run: npm ci
 
       # tsc type-checks the whole app before vite builds it, so a type error fails here
-      # instead of in Render's deploy.
+      # instead of in a deploy.
       - name: Type-check and build
         run: npm run build
+
+  package:
+    # Builds the wheel the way a release does (dashboard included) and installs it in a clean
+    # environment, so a file missing from the package fails here, not for users.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the dashboard into the package
+        run: |
+          cd dashboard && npm ci && npm run build && cd ..
+          rm -rf agenteval/static && cp -r dashboard/dist agenteval/static
+
+      - name: Build
+        run: pip install build && python -m build
+
+      - name: Install the wheel and smoke-test it outside the repository
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install "$(ls dist/*.whl)[server]"
+          cd /tmp
+          /tmp/clean/bin/agenteval --version
+          /tmp/clean/bin/agenteval run --cases 10 --attempts 1 --quiet --db smoke.db
+          /tmp/clean/bin/agenteval report --db smoke.db --format json > report.json
+          /tmp/clean/bin/python -c "import agenteval, pathlib; p = pathlib.Path(agenteval.__file__).parent; assert (p / 'data' / 'hard.jsonl').is_file() and (p / 'static' / 'index.html').is_file()"
+          /tmp/clean/bin/python -c "from agenteval.sample_data import hard_cases; assert len(hard_cases()) == 55"

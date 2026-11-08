@@ -1,0 +1,41 @@
+site_name: agenteval
+site_description: Run your LLM agent many times, trace every step, and find out why it fails.
+site_url: https://zeustucz.github.io/agent-eval/
+repo_url: https://github.com/ZeusTucZ/agent-eval
+repo_name: ZeusTucZ/agent-eval
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle: { icon: material/weather-night, name: Dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle: { icon: material/weather-sunny, name: Light mode }
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.footer
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc: { permalink: true }
+  - pymdownx.superfences
+  - pymdownx.tabbed: { alternate_style: true }
+  - pymdownx.details
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Concepts: concepts.md
+  - Guides:
+      - Connect your agent: guides/your-agent.md
+      - Write a dataset: guides/datasets.md
+      - What gets measured: guides/metrics.md
+      - LLM judge and calibration: guides/judge.md
