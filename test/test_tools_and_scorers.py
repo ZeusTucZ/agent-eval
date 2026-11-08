@@ -1,7 +1,7 @@
 import pytest
 
-from evalkit.models import EvaluationCase, Span, Trial
-from evalkit.scorers import (
+from agenteval.models import EvaluationCase, Span, Trial
+from agenteval.scorers import (
     exact_match,
     score_trials,
     tool_arguments_valid,
@@ -9,8 +9,8 @@ from evalkit.scorers import (
     tool_faithfulness,
     tool_selection,
 )
-from evalkit.tools import DEFAULT_TOOLS, ToolArgumentError, ToolRegistry, UnknownToolError
-from evalkit.tracer import Tracer
+from agenteval.tools import DEFAULT_TOOLS, ToolArgumentError, ToolRegistry, UnknownToolError
+from agenteval.tracer import Tracer
 
 registry = ToolRegistry(DEFAULT_TOOLS)
 

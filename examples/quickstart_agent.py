@@ -3,16 +3,16 @@
 Its "model" is a few rules instead of an LLM, so you can see how agent-eval traces and
 scores your own agent before wiring in a real one (see groq_agent.py for that):
 
-    python -m evalkit.run --agent examples.quickstart_agent:answer --model rules --price 0 0 \
+    python -m agenteval.run --agent examples.quickstart_agent:answer --model rules --price 0 0 \
         --dataset examples/quickstart_cases.jsonl --name quickstart
-    python -m evalkit.report 1
+    python -m agenteval.report 1
 
 It gets some cases wrong on purpose: a city missing from its "database" and a question it
 can't parse, so the report has failures to explain.
 """
 import re
 
-from evalkit import ToolArgumentError, llm_call, tool
+from agenteval import ToolArgumentError, llm_call, tool
 
 POPULATIONS = {"lisbon": 545_000, "tallinn": 457_000, "montevideo": 1_320_000}
 

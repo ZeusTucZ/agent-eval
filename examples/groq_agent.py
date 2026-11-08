@@ -5,7 +5,7 @@ are `llm_call` around each model request and `tool` around each tool: the rest i
 ordinary agent code you'd write anyway.
 
     set GROQ_API_KEY=...   (or export on macOS/Linux)
-    python -m evalkit.run --agent examples.groq_agent:answer --model openai/gpt-oss-20b \
+    python -m agenteval.run --agent examples.groq_agent:answer --model openai/gpt-oss-20b \
         --dataset examples/quickstart_cases.jsonl --attempts 3 --name groq-template
 
 Retries, rate limits and timeouts are your agent's own business here; agent-eval records
@@ -16,7 +16,7 @@ import os
 
 import openai
 
-from evalkit import llm_call, tool
+from agenteval import llm_call, tool
 from examples.quickstart_agent import calculator, population
 
 MODEL = "openai/gpt-oss-20b"

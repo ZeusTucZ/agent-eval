@@ -8,8 +8,8 @@ import pytest
 
 pytest.importorskip("chromadb")  # the rag extra: pip install -e ".[rag]"
 
-from evalkit.openai_agent import OpenAICompatibleAgent
-from evalkit.rag import (
+from agenteval.openai_agent import OpenAICompatibleAgent
+from agenteval.rag import (
     MAX_RECORDED_SEARCH,
     MAX_TOP_K,
     DocumentIndex,
@@ -18,15 +18,15 @@ from evalkit.rag import (
     rag_tools,
     retrieval_config,
 )
-from evalkit.models import EvaluationCase, Score, Span, Trial
-from evalkit.report import retrieval_diagnosis
-from evalkit.retry import RetryPolicy
-from evalkit.run import _real_agent_config
-from evalkit.runner import run_experiment
-from evalkit.sample_data import DATASETS_DIR, dataset_by_name, rag_cases
-from evalkit.scorers import retrieval_recall, retrieved_doc_ids, score_trials
-from evalkit.tools import ToolRegistry
-from evalkit.tracer import Tracer
+from agenteval.models import EvaluationCase, Score, Span, Trial
+from agenteval.report import retrieval_diagnosis
+from agenteval.retry import RetryPolicy
+from agenteval.run import _real_agent_config
+from agenteval.runner import run_experiment
+from agenteval.sample_data import DATASETS_DIR, dataset_by_name, rag_cases
+from agenteval.scorers import retrieval_recall, retrieved_doc_ids, score_trials
+from agenteval.tools import ToolRegistry
+from agenteval.tracer import Tracer
 from scripts.build_rag_dataset import cases as build_cases
 from scripts.build_rag_dataset import corpus as build_corpus
 from scripts.build_rag_dataset import to_jsonl

@@ -3,14 +3,14 @@ import json
 
 import pytest
 
-from evalkit.models import EvaluationCase, Score, Span, Trial
-from evalkit.openai_agent import OpenAICompatibleAgent
-from evalkit.report import pass_rate_by_category
-from evalkit.runner import run_experiment
-from evalkit.sample_data import DATASETS_DIR, hard_cases, tools_for_dataset
-from evalkit.scorers import avoids_forbidden_text, exact_match, score_trials, tool_execution, tool_selection
-from evalkit.tools import HARD_TOOLS, ToolArgumentError, ToolRegistry, convert_currency
-from evalkit.tracer import Tracer
+from agenteval.models import EvaluationCase, Score, Span, Trial
+from agenteval.openai_agent import OpenAICompatibleAgent
+from agenteval.report import pass_rate_by_category
+from agenteval.runner import run_experiment
+from agenteval.sample_data import DATASETS_DIR, hard_cases, tools_for_dataset
+from agenteval.scorers import avoids_forbidden_text, exact_match, score_trials, tool_execution, tool_selection
+from agenteval.tools import HARD_TOOLS, ToolArgumentError, ToolRegistry, convert_currency
+from agenteval.tracer import Tracer
 from scripts.build_hard_dataset import build, to_jsonl
 
 cases = hard_cases()

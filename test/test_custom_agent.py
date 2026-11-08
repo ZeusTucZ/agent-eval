@@ -1,4 +1,4 @@
-"""Bringing your own agent and dataset: evalkit.sdk, --agent module:name and --dataset file.jsonl."""
+"""Bringing your own agent and dataset: agenteval.sdk, --agent module:name and --dataset file.jsonl."""
 import asyncio
 import json
 import sys
@@ -6,15 +6,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from evalkit import ToolArgumentError, llm_call, tool
-from evalkit import storage
-from evalkit.models import EvaluationCase
-from evalkit.report import summarize
-from evalkit.runner import run_experiment
-from evalkit.sample_data import dataset_by_name, load_dataset_file
-from evalkit.scorers import score_trials
-from evalkit.sdk import FunctionAgent, load_agent
-from evalkit.tracer import Tracer
+from agenteval import ToolArgumentError, llm_call, tool
+from agenteval import storage
+from agenteval.models import EvaluationCase
+from agenteval.report import summarize
+from agenteval.runner import run_experiment
+from agenteval.sample_data import dataset_by_name, load_dataset_file
+from agenteval.scorers import score_trials
+from agenteval.sdk import FunctionAgent, load_agent
+from agenteval.tracer import Tracer
 
 case = EvaluationCase(id=1, input="What is 2 + 3?", expected_output="5", expected_tools=["add"])
 
@@ -196,9 +196,9 @@ def test_dataset_errors_point_at_the_line(tmp_path, content, message):
 # --- End to end, through the command line ---
 
 def run_cli(monkeypatch, *arguments):
-    from evalkit import run
+    from agenteval import run
 
-    monkeypatch.setattr(sys, "argv", ["evalkit.run", *arguments])
+    monkeypatch.setattr(sys, "argv", ["agenteval.run", *arguments])
     run.main()
 
 def test_the_quickstart_example_runs_and_reports(tmp_path, monkeypatch, capsys):
@@ -227,8 +227,8 @@ def test_the_cli_says_what_is_missing(monkeypatch, arguments, message):
         run_cli(monkeypatch, *arguments)
 
 def test_models_without_a_price_are_recorded_at_zero_with_a_warning(capsys):
-    from evalkit.models import Span, Trial
-    from evalkit.run import prices_for
+    from agenteval.models import Span, Trial
+    from agenteval.run import prices_for
 
     args = SimpleNamespace(price=[1.0, 2.0], model="mine")
     trial = Trial(id=1, case_id=1, attempt=1, spans=[

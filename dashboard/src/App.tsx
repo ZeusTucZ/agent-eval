@@ -3,15 +3,79 @@ import { api, apiBaseUrl } from "./api";
 import ExperimentsList from "./pages/ExperimentsList";
 import ExperimentDetail from "./pages/ExperimentDetail";
 import RunForm from "./pages/RunForm";
+import ComparePage from "./pages/ComparePage";
+import LabelPage from "./pages/LabelPage";
 import "./index.css";
 
-type View = { page: "list" } | { page: "detail"; id: number } | { page: "run" };
+// Routes live in the URL fragment, so every view can be linked to and the back button works,
+// with no server routing (the dashboard is static files).
+type View =
+  | { page: "list" }
+  | { page: "detail"; id: number }
+  | { page: "run" }
+  | { page: "compare"; a: number; b: number }
+  | { page: "label"; id: number };
+
+function parseRoute(hash: string): View {
+  const parts = hash.replace(/^#\/?/, "").split("/");
+  const n = (i: number) => Number(parts[i]);
+  if (parts[0] === "e" && n(1)) return { page: "detail", id: n(1) };
+  if (parts[0] === "compare" && n(1) && n(2)) return { page: "compare", a: n(1), b: n(2) };
+  if (parts[0] === "label" && n(1)) return { page: "label", id: n(1) };
+  if (parts[0] === "run") return { page: "run" };
+  return { page: "list" };
+}
+
+export function go(path: string) {
+  window.location.hash = `#/${path}`;
+}
+
+// `agenteval ui` hands this session's token over in the fragment (#token=...), which is
+// never sent to a server. Take it, then clear it from the address bar and history. It is kept
+// in sessionStorage: it survives a reload of this tab and is gone when the tab closes.
+const TOKEN_KEY = "agenteval-token";
+
+function initialToken(): string {
+  const match = window.location.hash.match(/token=([^&]+)/);
+  if (match) {
+    window.history.replaceState(null, "", window.location.pathname + "#/");
+    const token = decodeURIComponent(match[1]);
+    saveToken(token);
+    return token;
+  }
+  try {
+    return window.sessionStorage.getItem(TOKEN_KEY) ?? "";
+  } catch {
+    return ""; // storage can be blocked; the token then lasts until a reload
+  }
+}
+
+function saveToken(token: string) {
+  try {
+    if (token) window.sessionStorage.setItem(TOKEN_KEY, token);
+    else window.sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // ignore: see initialToken
+  }
+}
 
 export default function App() {
-  const [view, setView] = useState<View>({ page: "list" });
-  // Kept in memory only: never written to storage, gone when the tab closes.
-  const [token, setToken] = useState("");
+  const [token, setTokenState] = useState(initialToken);
+  const setToken = (value: string) => {
+    setTokenState(value);
+    saveToken(value);
+  };
+  const [view, setView] = useState<View>(() => parseRoute(window.location.hash));
   const [online, setOnline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const onChange = () => {
+      setView(parseRoute(window.location.hash));
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener("hashchange", onChange);
+    return () => window.removeEventListener("hashchange", onChange);
+  }, []);
 
   useEffect(() => {
     api
@@ -20,31 +84,18 @@ export default function App() {
       .catch(() => setOnline(false));
   }, []);
 
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [view]);
-
   const statusText = online === null ? "Connecting…" : online ? "API online" : "API offline";
+  const onRun = view.page === "run";
 
   return (
     <div className="app">
       <header className="topbar">
-        <span className="wordmark">agent-eval</span>
+        <a className="wordmark" href="#/">agenteval</a>
         <nav aria-label="Main">
-          <button
-            type="button"
-            className="ghost"
-            aria-current={view.page !== "run" ? "page" : undefined}
-            onClick={() => setView({ page: "list" })}
-          >
+          <button type="button" className="ghost" aria-current={onRun ? undefined : "page"} onClick={() => go("")}>
             Experiments
           </button>
-          <button
-            type="button"
-            className="ghost"
-            aria-current={view.page === "run" ? "page" : undefined}
-            onClick={() => setView({ page: "run" })}
-          >
+          <button type="button" className="ghost" aria-current={onRun ? "page" : undefined} onClick={() => go("run")}>
             New run
           </button>
         </nav>
@@ -57,32 +108,24 @@ export default function App() {
       <main>
         {online === false ? (
           <p className="notice info" style={{ marginBottom: 24 }}>
-            The API isn&apos;t answering. On Render&apos;s free tier it sleeps when idle and takes
-            about a minute to wake up, so try again shortly.
+            The API isn&apos;t answering. A server on a free tier may be asleep and take about a minute to wake up;
+            try again shortly.
           </p>
         ) : null}
         {view.page === "list" ? (
-          <ExperimentsList
-            onOpen={(id) => setView({ page: "detail", id })}
-            onNewRun={() => setView({ page: "run" })}
-          />
+          <ExperimentsList />
         ) : view.page === "detail" ? (
-          <ExperimentDetail
-            id={view.id}
-            token={token}
-            onTokenChange={setToken}
-            onBack={() => setView({ page: "list" })}
-          />
+          <ExperimentDetail id={view.id} token={token} onTokenChange={setToken} />
+        ) : view.page === "compare" ? (
+          <ComparePage a={view.a} b={view.b} />
+        ) : view.page === "label" ? (
+          <LabelPage id={view.id} token={token} onTokenChange={setToken} />
         ) : (
-          <RunForm
-            token={token}
-            onTokenChange={setToken}
-            onExperimentReady={(id) => setView({ page: "detail", id })}
-          />
+          <RunForm token={token} onTokenChange={setToken} />
         )}
       </main>
 
-      <footer>agent-eval · every number here comes from the API</footer>
+      <footer>agenteval · every number here comes from the API</footer>
     </div>
   );
 }

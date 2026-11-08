@@ -7,14 +7,22 @@ from types import SimpleNamespace
 import pytest
 from openai.types.chat import ChatCompletion
 
-from evalkit import storage
-from evalkit.calibrate import agreement, format_agreement, label, load_labels, sample_trials, verdict
-from evalkit.cost import PRICES
-from evalkit.judge import RUBRICS, SYSTEM_PROMPT, Judge, build_prompt, judge_trials, judge_version, parse_verdict
-from evalkit.models import AgentConfig, EvaluationCase, Experiment, Score, Span, Trial
-from evalkit.retry import RetryPolicy
-from evalkit.scorers import SCORER_NAMES
-from evalkit.stats import cohens_kappa
+from agenteval import storage
+from agenteval.calibrate import (
+    agreement,
+    export_label_file,
+    format_agreement,
+    import_label_file,
+    label,
+    sample_trials,
+    verdict,
+)
+from agenteval.cost import PRICES
+from agenteval.judge import RUBRICS, SYSTEM_PROMPT, Judge, build_prompt, judge_trials, judge_version, parse_verdict
+from agenteval.models import AgentConfig, EvaluationCase, Experiment, Score, Span, Trial
+from agenteval.retry import RetryPolicy
+from agenteval.scorers import SCORER_NAMES
+from agenteval.stats import cohens_kappa
 
 class FakeCompletions:
     def __init__(self, replies):
@@ -161,23 +169,43 @@ def test_small_samples_are_flagged_whatever_the_kappa():
     assert "label more" not in verdict(0.85, 50)
     assert verdict(0.2, 50).startswith("weak")
 
+def stored_trials(tmp_path, count=3):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    conn = storage.connect(tmp_path / "labels.db")
+    experiment = Experiment(name="e", dataset_name="mixed", config=AgentConfig(model="mock-llm", prompt="p"),
+                            attempts=1, prices=PRICES, created_at=datetime.now(timezone.utc))
+    trials = [trial(trial_id=n) for n in range(1, count + 1)]
+    return conn, storage.save_experiment(conn, experiment, trials, []), trials
+
 def test_labelling_saves_each_answer_and_resumes_where_it_stopped(tmp_path):
-    path = tmp_path / "labels.jsonl"
     rubric = RUBRICS["groundedness"]
-    trials = [trial(trial_id=n) for n in (1, 2, 3)]
+    conn, experiment_id, trials = stored_trials(tmp_path)
     shown: list[str] = []
 
     replies = iter(["x", "p", "q"])  # an invalid key is asked again; quit after one label
-    assert label(rubric, [case], trials, path, 7, ask=lambda _: next(replies), say=shown.append) == 1
-    assert load_labels(path) == {1: True}
+    assert label(rubric, [case], trials, conn, experiment_id, ask=lambda _: next(replies), say=shown.append) == 1
+    assert storage.load_labels(conn, experiment_id, "groundedness") == {1: True}
 
     replies = iter(["s", "f"])  # resumes at trial 2: skip it, fail trial 3
-    assert label(rubric, [case], trials, path, 7, ask=lambda _: next(replies), say=shown.append) == 1
-    assert load_labels(path) == {1: True, 3: False}
-    assert json.loads(path.read_text().splitlines()[0]) == {
-        "experiment_id": 7, "trial_id": 1, "rubric": "groundedness", "label": "pass"}
+    assert label(rubric, [case], trials, conn, experiment_id, ask=lambda _: next(replies), say=shown.append) == 1
+    assert storage.load_labels(conn, experiment_id, "groundedness") == {1: True, 3: False}
     # The labeller sees the material, never the judge's verdict.
     assert not any("judge" in text for text in shown)
+
+def test_label_files_round_trip_through_the_database(tmp_path):
+    conn, experiment_id, _ = stored_trials(tmp_path)
+    storage.save_label(conn, experiment_id, 1, "correctness", True)
+    storage.save_label(conn, experiment_id, 2, "correctness", False)
+    storage.save_label(conn, experiment_id, 2, "correctness", True)  # relabelling replaces
+
+    path = tmp_path / "labels.jsonl"
+    assert export_label_file(conn, experiment_id, "correctness", path) == 2
+    assert json.loads(path.read_text().splitlines()[0]) == {
+        "experiment_id": experiment_id, "trial_id": 1, "rubric": "correctness", "label": "pass"}
+
+    conn2, experiment_id2, _ = stored_trials(tmp_path / "other")
+    assert import_label_file(conn2, experiment_id2, "correctness", path) == 2
+    assert storage.load_labels(conn2, experiment_id2, "correctness") == {1: True, 2: True}
 
 def test_the_sample_is_fixed_and_only_holds_trials_the_rubric_applies_to():
     trials = [trial(trial_id=n) for n in range(1, 21)] + [trial(output="unknown", trial_id=21)]

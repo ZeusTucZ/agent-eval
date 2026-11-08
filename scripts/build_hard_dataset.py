@@ -1,4 +1,4 @@
-"""Builds datasets/hard.jsonl.
+"""Builds agenteval/data/hard.jsonl.
 
 Every expected answer is computed here rather than typed, so a typo in a question's
 answer can't make a correct model look wrong. To change the dataset, edit this file and
@@ -9,9 +9,9 @@ run it again; a test checks the JSONL file matches what this script produces.
 import json
 from pathlib import Path
 
-from evalkit.tools import convert_currency
+from agenteval.tools import convert_currency
 
-OUTPUT = Path(__file__).resolve().parent.parent / "datasets" / "hard.jsonl"
+OUTPUT = Path(__file__).resolve().parent.parent / "agenteval" / "data" / "hard.jsonl"
 
 UNKNOWN = "unknown"  # what the system prompt tells the agent to say when the tools can't answer
 

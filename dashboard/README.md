@@ -3,20 +3,22 @@
 React + Vite + TypeScript dashboard for the agent-eval FastAPI backend
 (Phase 4 of the deployment plan). It only displays fields the API actually
 returns — see `src/types.ts` for the exact contract (from
-`evalkit/api.py` `experiment_summary()` and `evalkit/models.py`).
+`agenteval/api.py` `experiment_summary()` and `agenteval/models.py`).
 
 ## Run locally
 
+The easiest way is through the package, which serves the built dashboard and the API together:
+
 ```bash
-npm install
-npm run dev        # Vite on http://localhost:5173
+agenteval ui
 ```
 
-The API base URL comes from `VITE_API_URL` (only read in `src/api.ts`). It
-defaults to `http://localhost:8000` — run the backend first:
+To work on the dashboard itself, run the API and Vite side by side. Vite proxies `/api` to
+the API, so the dashboard is same-origin as it is under `agenteval ui`:
 
 ```bash
-uvicorn evalkit.api:app --reload   # from the repo root
+uvicorn agenteval.api:app --port 8000   # from the repo root
+cd dashboard && npm ci && npm run dev   # http://localhost:5173
 ```
 
 ## Build
@@ -25,17 +27,14 @@ uvicorn evalkit.api:app --reload   # from the repo root
 npm run build      # tsc + vite build -> dashboard/dist
 ```
 
-## Deploy (Render Static Site, done by hand — not by this repo)
+Copy `dist` to `agenteval/static` to serve it from the API (the release workflow does this).
 
-- Root Directory: `dashboard`
-- Build Command: `npm run build`
-- Publish Directory: `dashboard/dist`
-- Environment variable: `VITE_API_URL=https://agent-eval-co10.onrender.com`
-  (no trailing slash). `VITE_API_URL` is baked in at build time: changing it
-  in Render requires a rebuild (Manual Deploy > Deploy latest commit).
+## Deploy separately (e.g. a Render Static Site)
 
-After the Static Site exists, add its URL to the backend's `CORS_ORIGINS`
-or the browser will block the API calls.
+- Root Directory: `dashboard`; Build Command: `npm run build`; Publish Directory: `dashboard/dist`
+- `VITE_API_URL=https://your-api.example.com` (no trailing slash), baked in at build time:
+  changing it needs a rebuild. Without it the dashboard calls the server that served it.
+- Add the site's address to the API's `CORS_ORIGINS`.
 
 ## Design
 
@@ -59,4 +58,4 @@ Identifiers, the latency breakdown and re-scoring are under "Details" at the end
   with the `arithmetic` dataset, real agents with `mixed`, `hard` or `rag`,
   and only models that have a price.
 - POST `/api/runs` does not accept `--rpm` / `--timeout`: the server applies
-  the per-agent defaults from `evalkit/run.py` `AGENT_DEFAULTS`.
+  the per-agent defaults from `agenteval/run.py` `AGENT_DEFAULTS`.

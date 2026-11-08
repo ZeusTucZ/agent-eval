@@ -1,7 +1,7 @@
 import pytest
 
-from evalkit.cost import span_cost, total_cost, trial_cost
-from evalkit.models import Price, Span, Trial
+from agenteval.cost import span_cost, total_cost, trial_cost
+from agenteval.models import Price, Span, Trial
 
 PRICES = {"big-model": Price(input_per_million=3.00, output_per_million=15.00)}
 

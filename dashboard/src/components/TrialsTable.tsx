@@ -22,6 +22,18 @@ function Status({ trial }: { trial: Trial }) {
 function TrialDetail({ trial }: { trial: Trial }) {
   return (
     <div className="detail">
+      {trial.case ? (
+        <div className="row">
+          <div>
+            <div className="stat-label">Question</div>
+            <div>{trial.case.input}</div>
+          </div>
+          <div>
+            <div className="stat-label">Expected</div>
+            <div className="answer">{trial.case.expected_output || <span className="muted">no reference</span>}</div>
+          </div>
+        </div>
+      ) : null}
       <div>
         <div className="stat-label">Answer</div>
         <div className="answer">{trial.output ?? <span className="muted">No answer</span>}</div>
@@ -152,7 +164,7 @@ export default function TrialsTable({ trials }: { trials: Trial[] }) {
                             setOpenId(open ? null : trial.id);
                           }}
                         >
-                          {open ? "▾" : "▸"} Case {trial.case_id}
+                          {open ? "▾" : "▸"} {trial.case ? trial.case.input : `Case ${trial.case_id}`}
                         </button>
                         <span className="muted"> · attempt {trial.attempt}</span>
                       </td>

@@ -3,12 +3,12 @@ from random import Random
 
 import pytest
 
-from evalkit.mock_agent import FaultConfig, MockAgent
-from evalkit.report import retry_reasons
-from evalkit.retry import RetryPolicy, call_llm_with_retries
-from evalkit.runner import run_experiment
-from evalkit.sample_data import arithmetic_cases
-from evalkit.tracer import Tracer
+from agenteval.mock_agent import FaultConfig, MockAgent
+from agenteval.report import retry_reasons
+from agenteval.retry import RetryPolicy, call_llm_with_retries
+from agenteval.runner import run_experiment
+from agenteval.sample_data import arithmetic_cases
+from agenteval.tracer import Tracer
 
 def test_backoff_doubles_and_is_capped():
     policy = RetryPolicy(base_delay_s=1.0, max_delay_s=5.0, jitter=False)

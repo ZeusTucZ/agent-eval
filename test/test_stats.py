@@ -1,6 +1,6 @@
 import pytest
 
-from evalkit.stats import bootstrap_mean, mcnemar_exact
+from agenteval.stats import bootstrap_mean, mcnemar_exact
 
 @pytest.mark.parametrize("improved, regressed, expected", [
     (6, 1, 0.125),         # 2 * (C(7,0) + C(7,1)) / 2^7 = 2 * 8 / 128

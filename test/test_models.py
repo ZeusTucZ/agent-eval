@@ -1,10 +1,10 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from evalkit.models import AgentConfig, dataset_version
-from evalkit.run import _system_prompt
-from evalkit.sample_data import arithmetic_cases, hard_cases, mixed_cases
-from evalkit.tools import SYSTEM_PROMPT
+from agenteval.models import AgentConfig, dataset_version
+from agenteval.run import _system_prompt
+from agenteval.sample_data import arithmetic_cases, hard_cases, mixed_cases
+from agenteval.tools import SYSTEM_PROMPT
 
 def test_identical_configs_have_the_same_version():
     first = AgentConfig(model="mock-llm", prompt="Answer.", params={"temperature": 0.0, "seed": 1})

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea to discuss
+    url: https://github.com/ZeusTucZ/agent-eval/discussions
+    about: For how-to questions and open-ended ideas.

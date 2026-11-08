@@ -6,17 +6,31 @@ on:
   push:
     branches: [main]
     paths:
-      - "evalkit/**"
+      - "agenteval/**"
       # Not part of the agent the gate runs: the HTTP API, the LLM judge, calibration,
       # re-scoring and the rag dataset's search tool.
-      - "!evalkit/api.py"
-      - "!evalkit/config.py"
-      - "!evalkit/judge.py"
-      - "!evalkit/calibrate.py"
-      - "!evalkit/rescore.py"
-      - "!evalkit/rag.py"
+      - "!agenteval/api.py"
+      - "!agenteval/config.py"
+      - "!agenteval/judge.py"
+      - "!agenteval/calibrate.py"
+      - "!agenteval/rescore.py"
+      - "!agenteval/rag.py"
+      - "!agenteval/data/rag*.jsonl"
+      # Commands and integrations the gate's built-in agent doesn't use.
+      - "!agenteval/cli.py"
+      - "!agenteval/scaffold.py"
+      - "!agenteval/manage.py"
+      - "!agenteval/pricing.py"
+      - "!agenteval/power.py"
+      - "!agenteval/generate.py"
+      - "!agenteval/traces.py"
+      - "!agenteval/export.py"
+      - "!agenteval/ui.py"
+      - "!agenteval/evaluation.py"
+      - "!agenteval/sdk.py"
+      - "!agenteval/integrations/**"
       - "prompts/**"
-      - "datasets/hard.jsonl"
+      - "agenteval/data/hard.jsonl"
       - ".github/workflows/agent-eval-baseline.yml"
   schedule:
     - cron: "0 9 * * 1"  # weekly, as the provider's model can change without any commit here
@@ -54,13 +68,13 @@ jobs:
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          python -m evalkit.run --agent groq --dataset "$DATASET" --attempts "$ATTEMPTS" \
+          python -m agenteval.run --agent groq --dataset "$DATASET" --attempts "$ATTEMPTS" \
             --rpm "$RPM" --timeout 900 --name baseline --db baseline.db
 
       # Comparing a run with itself passes unless it's damaged. Failing here means a run
       # spoiled by rate limits never replaces the last good baseline.
       - name: Check the run is usable
-        run: python -m evalkit.gate baseline.db baseline.db
+        run: python -m agenteval.gate baseline.db baseline.db
 
       - uses: actions/upload-artifact@v4
         with:

@@ -1,10 +1,10 @@
 import asyncio
 import time
 
-from evalkit.mock_agent import FaultConfig, MockAgent
-from evalkit.report import failure_rate
-from evalkit.runner import run_experiment
-from evalkit.sample_data import arithmetic_cases
+from agenteval.mock_agent import FaultConfig, MockAgent
+from agenteval.report import failure_rate
+from agenteval.runner import run_experiment
+from agenteval.sample_data import arithmetic_cases
 
 def test_concurrency_runs_trials_in_parallel():
     # 100 trials x 20 ms: about 2 s one at a time, about 0.2 s ten at a time.

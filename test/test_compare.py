@@ -3,14 +3,14 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from evalkit import compare, storage
-from evalkit.compare import ExperimentData, check_comparable, compare_experiments, config_changes
-from evalkit.cost import PRICES
-from evalkit.mock_agent import FaultConfig, MockAgent
-from evalkit.models import AgentConfig, EvaluationCase, Experiment, Score, Span, Trial, dataset_version
-from evalkit.runner import run_experiment
-from evalkit.sample_data import arithmetic_cases
-from evalkit.scorers import score_trials
+from agenteval import compare, storage
+from agenteval.compare import ExperimentData, check_comparable, compare_experiments, config_changes
+from agenteval.cost import PRICES
+from agenteval.mock_agent import FaultConfig, MockAgent
+from agenteval.models import AgentConfig, EvaluationCase, Experiment, Score, Span, Trial, dataset_version
+from agenteval.runner import run_experiment
+from agenteval.sample_data import arithmetic_cases
+from agenteval.scorers import score_trials
 
 NOW = datetime(2026, 10, 30, tzinfo=timezone.utc)
 MS = 1_000_000

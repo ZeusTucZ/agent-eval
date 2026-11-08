@@ -8,11 +8,12 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
-    # Free tier: no persistent disk, so the SQLite file (evalkit.db, the default
+    # Free tier: no persistent disk, so the SQLite file (agenteval.db, the default
     # DATABASE_PATH) is lost on every redeploy or restart. To keep data, move to
     # a paid plan, add a `disk` mounted at /data and set DATABASE_PATH to a file
     # under it.
     plan: free
+    # For a public demo that nobody can change, also set READ_ONLY=1.
     envVars:
       - key: API_TOKEN
         sync: false

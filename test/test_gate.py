@@ -4,16 +4,16 @@ from pathlib import Path
 
 import pytest
 
-from evalkit import gate, storage
-from evalkit.compare import ExperimentData, check_comparable, compare_experiments
-from evalkit.cost import PRICES
-from evalkit.gate import BLOCK, CANNOT_JUDGE, COMMENT_MARKER, PASS, decide, format_markdown, run_gate
-from evalkit.mock_agent import FaultConfig, MockAgent
-from evalkit.models import AgentConfig, Experiment, dataset_version
-from evalkit.runner import run_experiment
-from evalkit.sample_data import arithmetic_cases
-from evalkit.scorers import score_trials
-from evalkit.tracer import Tracer
+from agenteval import gate, storage
+from agenteval.compare import ExperimentData, check_comparable, compare_experiments
+from agenteval.cost import PRICES
+from agenteval.gate import BLOCK, CANNOT_JUDGE, COMMENT_MARKER, PASS, decide, format_markdown, run_gate
+from agenteval.mock_agent import FaultConfig, MockAgent
+from agenteval.models import AgentConfig, Experiment, dataset_version
+from agenteval.runner import run_experiment
+from agenteval.sample_data import arithmetic_cases
+from agenteval.scorers import score_trials
+from agenteval.tracer import Tracer
 from test_compare import make_cases, make_data, outcomes
 
 def decision_for(a: ExperimentData, b: ExperimentData, count: int = 20):
@@ -189,3 +189,16 @@ def test_account_ids_are_redacted_from_recorded_text():
     assert "org_fake123" not in message
     assert "org_REDACTED" in message
     assert "tokens per day" in message
+
+
+def test_a_stricter_policy_blocks_inconclusive_results_and_low_pass_rates():
+    from agenteval.gate import Policy
+
+    a, b = make_data(outcomes(19)), make_data(outcomes(18), prompt="B")  # one case worse: can't tell
+    fairness = check_comparable(a, b)
+    result = compare_experiments(a, b, make_cases(20))
+    assert result.verdict == "Inconclusive"
+    assert decide(a, b, fairness, result).exit_code == PASS
+    assert decide(a, b, fairness, result, Policy(block_inconclusive=True)).exit_code == BLOCK
+    assert decide(a, b, fairness, result, Policy(min_pass_rate=0.95)).exit_code == BLOCK
+    assert decide(a, b, fairness, result, Policy(min_pass_rate=0.85)).exit_code == PASS
