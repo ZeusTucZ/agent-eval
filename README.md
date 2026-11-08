@@ -257,7 +257,7 @@ def test_tool_error_rate_matches_injected():
     assert 0.07 < measured < 0.13
 ```
 
-The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 303 tests run in about 20 seconds and run in CI on every pull request.
+The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 308 tests run in about 20 seconds and run in CI on every pull request.
 
 ## Comparing versions
 
@@ -401,7 +401,7 @@ scripts/build_hard_dataset.py  builds the hard dataset, computing every expected
 scripts/build_rag_dataset.py   builds the rag corpus and dataset
 prompts/           system prompt versions, for --prompt-file
 examples/          your own agent: a no-key quickstart and a Groq template
-test/              303 tests, no network needed
+test/              308 tests, no network needed
 ```
 
 ## Known limitations
