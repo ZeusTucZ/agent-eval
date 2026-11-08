@@ -21,10 +21,17 @@ export default function App() {
 
   return (
     <div className="app">
-      <header>
+      <header className="app-header">
         <h1>agent-eval</h1>
-        <p>
-          Evaluation dashboard · API: {apiBaseUrl} · status: {health ?? "checking…"}
+        <p className="subtitle">
+          Evaluation dashboard · API: {apiBaseUrl} · status:{" "}
+          <span
+            className={`status-badge ${
+              health === "ok" ? "status-ok" : health ? "status-bad" : ""
+            }`}
+          >
+            {health ?? "checking…"}
+          </span>
         </p>
         <nav>
           <button type="button" onClick={() => setView({ page: "list" })} disabled={view.page === "list"}>
