@@ -428,7 +428,7 @@ options:
 
 ## ui
 
-Open the dashboard in your browser (needs agenteval-kit[server]).
+Open the dashboard in your browser (needs zeustucz-agenteval[server]).
 
 ```
 usage: agenteval ui [-h] [--db DB] [--port PORT] [--host HOST] [--no-browser] [--read-only]

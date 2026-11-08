@@ -1,7 +1,7 @@
 # The dashboard
 
 ```bash
-pip install "agenteval-kit[server]"
+pip install "zeustucz-agenteval[server]"
 agenteval ui
 ```
 

@@ -22,7 +22,7 @@ inputs:
     description: Also block when the change's pass rate is below this (0 to 1). Empty for no minimum.
     default: ""
   version:
-    description: agenteval-kit version to install.
+    description: zeustucz-agenteval version to install.
     default: "1.0.0"
   python-version:
     default: "3.12"
@@ -44,7 +44,7 @@ runs:
 
     - name: Install agenteval
       shell: bash
-      run: pip install "agenteval-kit==${{ inputs.version }}"
+      run: pip install "zeustucz-agenteval==${{ inputs.version }}"
 
     - name: Decide
       id: gate
