@@ -28,6 +28,8 @@ TOKEN = "test-token"
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "api.db"))
     monkeypatch.setenv("API_TOKEN", TOKEN)
+    # Off by default: tests that poll a job would otherwise trip it. One test turns it on.
+    monkeypatch.setenv("REQUESTS_PER_CLIENT_PER_MINUTE", "0")
     with TestClient(app) as test_client:
         yield test_client
 
@@ -202,6 +204,92 @@ def test_rescore_requires_token_and_recomputes(client, tmp_path, monkeypatch):
     assert response.json()["id"] == experiment_id
 
     assert client.post("/api/experiments/999/rescore", headers=auth_headers()).status_code == 404
+
+
+# --- Limits that keep the public API usable ---
+
+
+@pytest.mark.parametrize("field, value", [("attempts", 11), ("cases", 1001), ("name", "x" * 81)])
+def test_runs_are_bounded(client, field, value):
+    body = {"agent": "mock", "dataset": "arithmetic", "attempts": 1, field: value}
+    assert client.post("/api/runs", json=body, headers=auth_headers()).status_code == 422
+
+
+def test_too_many_waiting_runs_are_refused(client, monkeypatch):
+    from evalkit import api
+
+    monkeypatch.setattr(api, "_jobs", {str(n): {"status": "queued"} for n in range(api.MAX_WAITING_JOBS)})
+    response = client.post("/api/runs", json={"agent": "mock", "dataset": "arithmetic", "attempts": 1},
+                           headers=auth_headers())
+    assert response.status_code == 429
+
+
+def test_finished_jobs_are_pruned_oldest_first(monkeypatch):
+    from evalkit import api
+
+    finished = {f"old-{n}": {"status": "completed"} for n in range(api.MAX_KEPT_JOBS)}
+    monkeypatch.setattr(api, "_jobs", {**finished, "running": {"status": "running"}})
+
+    api._new_job(api.RunRequest(agent="mock", dataset="arithmetic"))
+
+    assert len(api._jobs) == api.MAX_KEPT_JOBS
+    assert "old-0" not in api._jobs and "running" in api._jobs  # unfinished jobs are never dropped
+
+
+def test_experiments_are_listed_a_page_at_a_time(client, tmp_path):
+    for name in ("first", "second", "third"):
+        seed_experiment(tmp_path / "api.db", name=name)
+
+    assert [e["name"] for e in client.get("/api/experiments?limit=2").json()] == ["third", "second"]
+    assert [e["name"] for e in client.get("/api/experiments?limit=2&offset=2").json()] == ["first"]
+    assert client.get("/api/experiments?limit=101").status_code == 422
+
+
+def test_a_cached_summary_is_rebuilt_when_scores_change(client, tmp_path):
+    experiment_id = seed_experiment(tmp_path / "api.db")
+    before = client.get(f"/api/experiments/{experiment_id}").json()
+
+    conn = storage.connect(tmp_path / "api.db")
+    with conn:  # what evalkit.rescore would do from another process
+        conn.execute("UPDATE scores SET value = 0 WHERE experiment_id = ? AND scorer = 'exact_match'",
+                     (experiment_id,))
+
+    after = client.get(f"/api/experiments/{experiment_id}").json()
+    assert before["pass_rate"] == 1.0 and after["pass_rate"] == 0.0
+
+
+def test_clients_over_the_limit_get_429_with_cors_headers(client, monkeypatch):
+    from evalkit import api
+
+    monkeypatch.setenv("REQUESTS_PER_CLIENT_PER_MINUTE", "2")
+    monkeypatch.setattr(api, "_client_limiter", api.ClientLimiter())
+    origin = {"Origin": "http://localhost:5173"}
+
+    assert client.get("/api/experiments", headers=origin).status_code == 200
+    assert client.get("/api/experiments", headers=origin).status_code == 200
+    limited = client.get("/api/experiments", headers=origin)
+    assert limited.status_code == 429
+    assert int(limited.headers["retry-after"]) > 0
+    assert limited.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert client.get("/health").status_code == 200  # the health check is never limited
+
+
+def test_the_limit_is_per_client_and_uses_the_proxys_address():
+    from types import SimpleNamespace
+
+    from evalkit.api import ClientLimiter, client_address
+
+    clock = SimpleNamespace(now=0.0)
+    limiter = ClientLimiter(clock=lambda: clock.now)
+    assert limiter.retry_after("a", 1) is None
+    assert limiter.retry_after("a", 1) == 60
+    assert limiter.retry_after("b", 1) is None  # another client has its own budget
+    clock.now = 60
+    assert limiter.retry_after("a", 1) is None  # the minute has passed
+
+    # The client can put anything first; the last entry is the one Render's proxy added.
+    spoofed = SimpleNamespace(headers={"x-forwarded-for": "1.2.3.4, 203.0.113.9"}, client=None)
+    assert client_address(spoofed) == "203.0.113.9"
 
 
 def test_a_request_connection_works_from_another_thread(tmp_path, monkeypatch):

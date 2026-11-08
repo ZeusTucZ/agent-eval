@@ -33,6 +33,11 @@ def cors_origins() -> list[str]:
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
+def requests_per_client_per_minute() -> int:
+    """How many requests one client may make per minute; 0 turns the limit off."""
+    return int(os.environ.get("REQUESTS_PER_CLIENT_PER_MINUTE", "120"))
+
+
 def port() -> int:
     """Local default 8000; Render injects its own PORT."""
     return int(os.environ.get("PORT", "8000"))

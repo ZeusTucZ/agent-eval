@@ -44,7 +44,7 @@ curl http://127.0.0.1:8000/health
 
 ### How runs are protected
 
-All `GET` endpoints are public and read-only. `POST /api/runs` and `POST /api/experiments/{id}/rescore` require the `X-API-Token` header with the server's `API_TOKEN` value; without it, or with a wrong value, they return HTTP 401. The token lives only as an environment variable in Render, never in the repo, so a visitor cannot spend the Groq quota by launching runs.
+All `GET` endpoints are public and read-only. `POST /api/runs` and `POST /api/experiments/{id}/rescore` require the `X-API-Token` header with the server's `API_TOKEN` value; without it, or with a wrong value, they return HTTP 401. The token lives only as an environment variable in Render, never in the repo, so a visitor cannot spend the Groq quota by launching runs. Runs are bounded (at most 10 attempts and 1,000 arithmetic questions), at most three can wait at once, and each client may make 120 requests a minute (`REQUESTS_PER_CLIENT_PER_MINUTE`), so the public endpoints stay usable for everyone. The experiment list is paged (`?limit=` up to 100, `?offset=`).
 
 ## Why
 
