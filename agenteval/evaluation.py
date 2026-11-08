@@ -170,13 +170,15 @@ def _to_cases(cases: CasesLike) -> tuple[str, list[EvaluationCase]]:
     return "inline", built
 
 def _agent_and_config(agent: Callable | Agent, model: str, config: dict | None) -> tuple[Agent, AgentConfig]:
+    wrapped: Any
+    target: Any
     if callable(getattr(agent, "run", None)) and not inspect.isfunction(agent):
         wrapped, target = agent, type(agent)
     else:
-        wrapped, target = FunctionAgent(agent, model), agent
+        wrapped, target = FunctionAgent(agent, model), agent  # type: ignore[arg-type]
     # The agent's source is part of its version, as in the CLI, so compare can tell edits apart.
     try:
-        source = Path(inspect.getsourcefile(target)).read_bytes()
+        source = Path(inspect.getsourcefile(target) or "").read_bytes()
     except (TypeError, OSError):
         source = repr(target).encode()
     name = f"{getattr(target, '__module__', '?')}:{getattr(target, '__qualname__', type(target).__name__)}"

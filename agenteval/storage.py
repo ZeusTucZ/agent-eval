@@ -146,6 +146,7 @@ def _insert_experiment(conn: sqlite3.Connection, experiment: Experiment,
             json.dumps([case.model_dump(exclude_none=True) for case in cases]) if cases is not None else None,
         ),
     )
+    assert cursor.lastrowid is not None  # always set after an INSERT
     return cursor.lastrowid
 
 def _prices_json(experiment: Experiment) -> str:

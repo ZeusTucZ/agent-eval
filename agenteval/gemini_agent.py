@@ -143,11 +143,12 @@ class GeminiAgent:
                     raise EmptyOutput("the model finished without saying anything")
                 return answer
 
-            contents.append(response.candidates[0].content)
+            if response.candidates and response.candidates[0].content:
+                contents.append(response.candidates[0].content)
             contents.append(types.Content(role="user", parts=[
                 types.Part.from_function_response(
-                    name=call.name,
-                    response=self._call_tool(call.name, dict(call.args or {}), tracer),
+                    name=call.name or "",
+                    response=self._call_tool(call.name or "", dict(call.args or {}), tracer),
                 )
                 for call in function_calls
             ]))

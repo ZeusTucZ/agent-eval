@@ -337,7 +337,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     # Model outputs can hold characters a Windows console can't show.
-    sys.stdout.reconfigure(errors="replace")
+    sys.stdout.reconfigure(errors="replace")  # type: ignore[union-attr]
 
     conn = storage.connect(args.db)
     a, b = load(conn, args.a), load(conn, args.b)

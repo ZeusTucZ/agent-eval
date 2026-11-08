@@ -174,7 +174,7 @@ def tool_faithfulness(case: EvaluationCase, trial: Trial) -> Score | None:
 
     if numbers_in_answer:
         backed = [number for result in results for number in _numbers_in(result)]
-        unsupported = [
+        unsupported: list[float | str] = [
             number for number in numbers_in_answer
             if not any(abs(number - source) <= 0.01 for source in backed)
         ]
@@ -191,7 +191,7 @@ SEARCH_TOOL = "search_docs"
 
 def retrieved_doc_ids(trial: Trial) -> set[str]:
     """Every document any search in the trial returned, read from the recorded results."""
-    found = set()
+    found: set[str] = set()
     for span in _tool_spans(trial):
         if span.name != SEARCH_TOOL or span.status != "success" or span.output is None:
             continue
@@ -258,7 +258,7 @@ def as_scorer(function: Callable[[EvaluationCase, Trial], Any], name: str | None
     """Turn your function into a scorer. It gets the case and the trial and may return a
     Score, a number from 0 to 1, a bool, a (value, reasoning) pair, or None to skip the
     trial. Its scores are named after the function unless `name` says otherwise."""
-    scorer_name = name or getattr(function, "__name__", "custom")
+    scorer_name: str = name or getattr(function, "__name__", None) or "custom"
 
     def scorer(case: EvaluationCase, trial: Trial) -> Score | None:
         result = function(case, trial)

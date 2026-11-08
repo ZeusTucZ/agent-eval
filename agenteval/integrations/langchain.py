@@ -14,7 +14,7 @@ Needs langchain-core; outside an evaluation the callback does nothing.
 """
 import json
 from time import perf_counter_ns
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from agenteval.models import Span
@@ -58,7 +58,7 @@ class AgentEvalCallback(BaseCallbackHandler):
         super().__init__()
         self._open: dict[UUID, tuple[Any, Span]] = {}  # run id -> (tracer, span in progress)
 
-    def _start(self, run_id: UUID, kind: str, name: str, input_text: str | None = None) -> None:
+    def _start(self, run_id: UUID, kind: Literal["llm", "tool"], name: str, input_text: str | None = None) -> None:
         trial = _active.get()
         if trial is None:
             return

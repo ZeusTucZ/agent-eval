@@ -27,7 +27,7 @@ import uuid
 from collections import Counter, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -368,7 +368,7 @@ class RunRequest(BaseModel):
     seed: int = 42
     # Only for the rag dataset.
     top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=MAX_TOP_K)
-    embedding: Literal[EMBEDDINGS] = DEFAULT_EMBEDDING
+    embedding: Literal[EMBEDDINGS] = DEFAULT_EMBEDDING  # type: ignore[valid-type]
 
 
 _jobs: dict[str, dict] = {}  # in memory: a restart forgets them, but the experiments are saved
@@ -383,7 +383,7 @@ _run_lock = threading.Lock()
 
 
 def _new_job(request: RunRequest) -> dict:
-    job = {
+    job: dict[str, Any] = {
         "id": uuid.uuid4().hex[:12],
         "status": "queued",
         "agent": request.agent,

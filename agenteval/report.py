@@ -279,7 +279,7 @@ def main(argv: list[str] | None = None) -> None:
         Path(args.output).write_text(text, encoding="utf-8")
         print(f"Wrote the {args.format} report for experiment {experiment_id} to {args.output}")
     else:
-        sys.stdout.reconfigure(errors="replace")
+        sys.stdout.reconfigure(errors="replace")  # type: ignore[union-attr]
         print(text)
 
 if __name__ == "__main__":

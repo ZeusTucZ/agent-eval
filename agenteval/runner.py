@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Set
 from typing import Protocol
 
 from agenteval.models import EvaluationCase, Trial
@@ -39,7 +39,7 @@ async def run_experiment(
     concurrency: int = 10,
     timeout_s: float = 30.0,
     on_trial: Callable[[Trial], None] | None = None,
-    skip: set[int] = frozenset(),
+    skip: Set[int] = frozenset(),
     should_stop: Callable[[], bool] | None = None,
 ) -> list[Trial]:
     """Run every case `attempts` times. Trial ids are fixed by position (case order, then

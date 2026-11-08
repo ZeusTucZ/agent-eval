@@ -112,7 +112,8 @@ class OpenAICompatibleAgent:
 
         async def generate() -> tuple[Any, int, int]:
             response = await self.client.chat.completions.create(
-                model=self.model, messages=messages, tools=tools, temperature=self.temperature,
+                model=self.model, messages=messages, tools=tools,  # type: ignore[arg-type]
+                temperature=self.temperature,
             )
             usage = response.usage
             return response, (usage and usage.prompt_tokens) or 0, (usage and usage.completion_tokens) or 0

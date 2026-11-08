@@ -300,7 +300,7 @@ def main(argv: list[str] | None = None) -> None:
     if key_variable and not os.environ.get(key_variable):
         raise SystemExit(f"Set the {key_variable} environment variable first.")
 
-    sys.stdout.reconfigure(errors="replace")
+    sys.stdout.reconfigure(errors="replace")  # type: ignore[union-attr]
     conn = storage.connect(args.db)
     experiment = storage.load_experiment(conn, args.experiment_id)
     trials = storage.load_trials(conn, args.experiment_id)

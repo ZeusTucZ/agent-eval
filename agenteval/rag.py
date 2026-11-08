@@ -78,7 +78,7 @@ def _embedding_function(name: str) -> Any:
         def __init__(self) -> None:
             pass
 
-        def __call__(self, input: list[str]) -> list[list[float]]:
+        def __call__(self, input: list[str]) -> list[list[float]]:  # type: ignore[override]
             return [hash_embed(text) for text in input]
 
         @staticmethod

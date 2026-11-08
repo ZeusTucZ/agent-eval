@@ -110,7 +110,7 @@ class RecordedCreate:
     def _record(self, call: Any, response: Any, key: str | None) -> None:
         input_tokens, output_tokens = self._usage(response)
         call.tokens(input_tokens, output_tokens)
-        if key is not None:
+        if key is not None and self._cache is not None:
             self._cache.put(key, response)
 
     async def _finish(self, step: Any, call: Any, pending: Any, key: str | None) -> Any:

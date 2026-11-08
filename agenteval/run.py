@@ -2,6 +2,7 @@ import argparse
 import asyncio
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 from agenteval import storage
 from agenteval.cost import PRICES, with_unpriced_models
@@ -122,7 +123,7 @@ BUILDERS = {"mock": build_mock, "gemini": build_gemini, "groq": build_groq}
 # Per-agent defaults for options left unset. Real agents' timeouts must outlast their retry
 # schedule (up to 5 waits of 60 s), or a trial is cut off mid-retry; that is what happened
 # to experiment 3 with an older 120 s default.
-AGENT_DEFAULTS = {
+AGENT_DEFAULTS: dict[str, dict[str, Any]] = {
     "mock": {"model": "mock-llm", "dataset": "arithmetic", "concurrency": 20, "timeout": 2.0, "rpm": 0},
     "gemini": {"model": "gemini-2.5-flash", "dataset": "mixed", "concurrency": 2, "timeout": 360.0, "rpm": 8},
     "groq": {"model": "openai/gpt-oss-20b", "dataset": "mixed", "concurrency": 4, "timeout": 360.0, "rpm": 25},

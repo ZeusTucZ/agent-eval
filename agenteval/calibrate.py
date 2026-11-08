@@ -179,7 +179,7 @@ def main(argv: list[str] | None = None) -> None:
             command.add_argument("--export", type=Path, help="also write your labels to this JSONL file")
     args = parser.parse_args(argv)
 
-    sys.stdout.reconfigure(errors="replace")
+    sys.stdout.reconfigure(errors="replace")  # type: ignore[union-attr]
     conn = storage.connect(args.db)
     try:
         rubric = load_rubric(args.rubric)

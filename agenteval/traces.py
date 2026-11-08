@@ -135,7 +135,7 @@ def import_traces(conn, path: Path, name: str, model: str, cases_out: Path,
 def export_records(experiment: Experiment, trials: list[Trial], cases: list[EvaluationCase] | None,
                    fmt: str) -> list[dict]:
     by_case = {case.id: case for case in cases or []}
-    records = []
+    records: list[dict[str, Any]] = []
     for trial in trials:
         case = by_case.get(trial.case_id)
         tool_outputs = [span.output for span in trial.spans if span.kind == "tool" and span.output]

@@ -29,7 +29,7 @@ def main_list(argv: list[str] | None = None) -> None:
 
     header = ("ID", "Name", "Model", "Dataset", "Trials", "Pass", "Created")
     widths = [max(len(row[i]) for row in [header, *rows]) for i in range(len(header))]
-    sys.stdout.reconfigure(errors="replace")
+    sys.stdout.reconfigure(errors="replace")  # type: ignore[union-attr]
     for row in [header, *rows]:
         print("  ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)).rstrip())
 
