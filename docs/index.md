@@ -43,9 +43,9 @@ Failures:         none
 - **[Quickstart](quickstart.md)**: your own agent evaluated in five minutes.
 - **[Connect your agent](guides/your-agent.md)**: plain functions, OpenAI clients,
   LangChain and LangGraph.
-- **Compare versions and gate CI**: block a pull request that makes
+- **[Compare versions and gate CI](guides/compare.md)**: block a pull request that makes
   the agent worse.
-- **agenteval vs other tools**: how it relates to Ragas, DeepEval and promptfoo.
+- **[agenteval vs other tools](comparison.md)**: how it relates to Ragas, DeepEval and promptfoo.
 
 !!! note "Names"
     The project is agent-eval, the Python package and command are `agenteval`, and you

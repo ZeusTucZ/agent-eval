@@ -57,8 +57,9 @@ def _age_in_months(month: str, today: datetime) -> int:
 def main_prices(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="agenteval prices", description="Show or update model prices.")
     parser.add_argument("search", nargs="?", help="show models whose name contains this")
-    parser.add_argument("--update", action="store_true", help=f"fetch current prices from LiteLLM's list into "
-                                                              f"{user_prices_file()}")
+    parser.add_argument("--update", action="store_true",
+                        help="fetch current prices from LiteLLM's list into ~/.agenteval/prices.json "
+                             "(or AGENTEVAL_PRICES_FILE)")
     args = parser.parse_args(argv)
 
     if args.update:

@@ -39,3 +39,15 @@ nav:
       - Write a dataset: guides/datasets.md
       - What gets measured: guides/metrics.md
       - LLM judge and calibration: guides/judge.md
+      - Compare versions and gate CI: guides/compare.md
+      - Control cost: guides/costs.md
+      - Import traces and Ragas: guides/import.md
+      - The dashboard: guides/dashboard.md
+      - Privacy: guides/privacy.md
+  - Reference:
+      - Command line: reference/cli.md
+      - Python API: reference/python.md
+      - agenteval.toml: reference/config.md
+  - Results from real runs: results.md
+  - agenteval vs other tools: comparison.md
+  - FAQ: faq.md

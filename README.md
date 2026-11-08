@@ -1,10 +1,24 @@
 # agent-eval
 
 [![tests](https://github.com/ZeusTucZ/agent-eval/actions/workflows/tests.yml/badge.svg)](https://github.com/ZeusTucZ/agent-eval/actions/workflows/tests.yml)
+[![docs](https://img.shields.io/badge/docs-zeustucz.github.io%2Fagent--eval-4f46e5)](https://zeustucz.github.io/agent-eval/)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-A reliability and evaluation harness for LLM agents. It runs an agent over a dataset many times, traces every step, and measures what matters before you ship: **correctness, tool-call success, latency, cost, retries and failures**, with each failure labelled by its cause.
+**Run your LLM agent many times, trace every step, and find out why it fails.**
 
-It works with a deterministic **mock agent** (for testing the harness itself), **Gemini**, and any **OpenAI-compatible** provider such as **Groq** or a local **Ollama**.
+An agent that answers well in a demo can still be slow, expensive, flaky, or right for the
+wrong reason: it answered from memory instead of using its tools, or a rate limit made half
+its runs fail. A single accuracy number hides all of that. agenteval runs your agent over a
+set of questions, several times each, records every model call and tool call, and tells you
+**how often it's right, why it fails, how it uses its tools, what it costs**, and **whether a
+change really made it better**.
+
+```bash
+pip install "agenteval-kit[server]"
+agenteval init      # an example agent, a few questions, a config
+agenteval run       # no API key needed for the example
+agenteval ui        # see it in your browser
+```
 
 ```
 Experiment 5: groq-first   config v=c98ba11d65cb   48 trials
@@ -16,417 +30,91 @@ Tool calls:
   valid arguments   100.0%  (48 trials)
   ran without error 93.8%  (48 trials)
 Retries:          1 (rate_limit 1)
-Timeouts:         0.0%
 Cost:             $0.0027 total, $0.000057 per success
 Failures:         none
 ```
 
-*A real run against Groq. The gap between the two latency figures is explained in [What the live runs taught me](#what-the-live-runs-taught-me).*
+*A real run against Groq. More in [Results from real runs](https://zeustucz.github.io/agent-eval/results/).*
+
+## Your agent, unchanged
+
+Write it as a function from question to answer, and wrap its steps, or let an integration
+do it:
+
+```python
+from agenteval import evaluate, llm_call, tool, wrap_openai
+
+client = wrap_openai(AsyncOpenAI())              # every chat completion becomes a step
+
+async def answer(question: str) -> str:
+    weather = await tool("get_weather", get_weather, city="Lisbon")   # a tool step
+    response = await client.chat.completions.create(model="gpt-4o-mini", messages=[...])
+    return response.choices[0].message.content
+
+results = evaluate(answer, "cases.jsonl", model="gpt-4o-mini", price=(0.15, 0.60))
+print(results)               # the report
+results.failures()           # the trials that didn't pass, with question and answer
+results.compare(baseline)    # is this version really better?
+```
+
+LangChain and LangGraph agents need one callback. The same works from the command line:
+`agenteval run --agent my_agents:answer --model gpt-4o-mini --dataset cases.jsonl`.
+
+## What makes it different
+
+- **Failures labelled by cause.** A tool error, a timeout, a rate limit, a daily quota, a
+  truncated answer: each gets its own label, so "68% correct" and "100% correct, 32% blocked
+  by rate limits" don't look the same.
+- **Tool use checked step by step**: the right tool, valid arguments, ran without error, and
+  whether the answer is backed by what the tools returned.
+- **RAG diagnosed**: did the search miss the document, or did the model have it and still
+  answer wrong?
+- **Changes judged with statistics.** A paired McNemar test and bootstrap intervals say
+  whether B is really better than A, and `agenteval power` says how many questions you need
+  to tell. A gate and a GitHub Action block pull requests that make the agent worse.
+- **An LLM judge you can check.** Label 50 answers yourself and see the judge's agreement
+  with you (Cohen's kappa) before trusting it.
+- **Built for real APIs**: retries with backoff, request and token rate limits, a circuit
+  breaker for daily quotas, cost caps, and runs that resume after an interruption.
+
+## What's in the box
+
+| | |
+|---|---|
+| **Run** | your agent, or built-in Groq, Gemini and fault-injecting mock agents; `--sample`, `--max-cost`, `--resume`, `--redact` |
+| **Score** | exact match, tool selection / arguments / execution, tool faithfulness, retrieval recall, forbidden text, your own scorers, and an LLM judge (correctness, groundedness, answer and context relevance, your own rubrics) |
+| **Datasets** | your JSONL file, cases generated from your documents (`agenteval generate`), or built-in `mixed`, `hard` (55 cases, 10 categories) and `rag` (45 cases over a document corpus) |
+| **Read** | reports as text, JSON, Markdown, HTML and CSV; a local dashboard to browse, compare and label |
+| **Decide** | `compare`, `power`, `gate`, and a GitHub Action |
+| **Bring data** | import recorded traces or Ragas samples; export to Ragas |
+
+## Documentation
+
+**[zeustucz.github.io/agent-eval](https://zeustucz.github.io/agent-eval/)**: quickstart,
+guides to connecting your agent, writing datasets, the metrics, the judge, comparing versions,
+cost and privacy, and the full command-line and Python reference. The same pages are in
+[`docs/`](docs/).
 
 ## Live demo
 
-**API (backend):** https://agent-eval-co10.onrender.com — live, verified 7 November 2026: `GET /health` returns `{"status": "ok"}` and `GET /api/experiments` returns an empty list. No experiment has been seeded in production yet, so the list is empty for now.
+The API runs at https://agent-eval-co10.onrender.com (Render's free tier: the first request
+after a while can take about a minute to wake it up), with the dashboard deployed alongside it
+as a static site. Its database lives on the service's ephemeral disk, so it empties on each
+redeploy.
 
-**Dashboard:** pending — the React/Vite dashboard code is in this repo (`dashboard/`), but it has not been deployed as a Render Static Site yet, so there is no public dashboard URL. This section will link it once it is live.
-
-Architecture: FastAPI + SQLite on Render (no persistent disk), behind a React/Vite dashboard. The production database is a plain SQLite file (`agenteval.db`) on the service's ephemeral filesystem, so data does not survive a redeploy or restart. [`render.yaml`](render.yaml) describes this same setup. A persistent disk (or a Postgres migration) is future work, not part of this deployment.
-
-The backend runs on Render's Free tier, which sleeps after a period of inactivity: the first request after a while can take around 50 seconds (cold start) before responding. That is expected, not an outage.
-
-### Run the API locally
+## Developing
 
 ```bash
-pip install -e ".[dev]"
-python -m pytest
-uvicorn agenteval.api:app --reload
-curl http://127.0.0.1:8000/health
+git clone https://github.com/ZeusTucZ/agent-eval && cd agent-eval
+python -m venv .venv && .venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin on macOS/Linux
+.venv/Scripts/python -m pytest
 ```
 
-### How runs are protected
-
-All `GET` endpoints are public and read-only. `POST /api/runs` and `POST /api/experiments/{id}/rescore` require the `X-API-Token` header with the server's `API_TOKEN` value; without it, or with a wrong value, they return HTTP 401. The token lives only as an environment variable in Render, never in the repo, so a visitor cannot spend the Groq quota by launching runs. Runs are bounded (at most 10 attempts and 1,000 arithmetic questions), at most three can wait at once, and each client may make 120 requests a minute (`REQUESTS_PER_CLIENT_PER_MINUTE`), so the public endpoints stay usable for everyone. The experiment list is paged (`?limit=` up to 100, `?offset=`).
-
-## Why
-
-An agent that answers correctly in a demo can still be slow, expensive, flaky, or right for the wrong reason (answering from memory instead of using its tools). A single pass/fail number hides all of that. This project records **what actually happened in each step**, so a failure can be traced to its cause: the model, a tool, the API's rate limits, or the evaluation itself.
-
-## How it works
-
-```mermaid
-flowchart LR
-    D[Dataset<br/>cases + expected answers] --> R[Runner<br/>cases × attempts, concurrency, timeouts]
-    C[AgentConfig<br/>model, prompt, params → version hash] --> R
-    R --> A[Agent<br/>mock · Gemini · Groq/Ollama]
-    A -->|every LLM call and tool call| T[Tracer<br/>spans: timing, tokens, status, error]
-    T --> TR[Trials]
-    TR --> S[Scorers<br/>exact match, tool-call ladder]
-    TR --> DB[(SQLite)]
-    S --> DB
-    DB --> REP[Report<br/>pass rate, latency, cost, retries, failures]
-```
-
-| Concept | What it is |
-|---|---|
-| **EvaluationCase** | One question, its expected answer and the tool it should use |
-| **Trial** | One attempt at one case. Each case runs several times, because LLMs are nondeterministic |
-| **Span** | One step inside a trial (an LLM call or a tool call) with start/end time, tokens, status, error type and message; tool spans also keep the arguments the model sent and the result |
-| **Score** | A judgement about a trial. Kept separate from trials, so scorers can be fixed and **re-run without calling the model again** |
-| **AgentConfig** | Model, prompt and settings; its content hash is the version, so any change gives a new version automatically |
-| **Experiment** | One config run over one dataset, with a snapshot of prices at run time |
-
-## What it measures
-
-- **Correctness:** `exact_match`, forgiving case, accents and a trailing period.
-- **Tool calls, step by step:** each step fails for a different reason, so each gets its own score:
-  1. `tool_selection`: did it call the tool the case needs? Answering from memory fails this even when the answer is right.
-  2. `tool_arguments_valid`: did it name a real tool and pass valid arguments (validated with pydantic)?
-  3. `tool_execution`: did the tool run without an error?
-- **Hallucination proxy:** `tool_faithfulness` checks that every number in an answer, or its text, appears in a tool result. It needs no expected answer and no LLM, so it could run on every response. On real runs, 87% of answers were backed by tools, against 4.6% for a prompt that told the agent not to use them. It measures faithfulness to sources, not truth: most flagged answers were right but worked out in the model's head, so treat a flag as "unverified", not "wrong".
-- **Retrieval:** `retrieval_recall` is the share of a case's relevant documents that the agent's searches brought back, read from the trace. The report crosses it with `exact_match` to say where each RAG trial went wrong: the search missed a document (a retrieval problem), or found them all and the model still answered wrong (a generation problem). A right answer without the documents is listed apart, since it can't have come from the search.
-- **Latency:** p50/p95, both **total** (what a user waits) and **excluding waits** (time inside requests).
-- **Cost:** tokens from the provider's response × a per-model price table; total and **per successful answer**.
-- **Retries:** counted by reason (`rate_limit`, `server_error`, `connection_error`).
-- **Failures, labelled by cause:** `tool_error`, `llm_error`, `timeout` (a step hung), `timeout_after_rate_limit` (ran out of time waiting to retry), `quota_exhausted`, `max_steps_exceeded`, and three model failures: `output_truncated` (hit the output-token limit before answering), `empty_output` (finished without saying anything) and `invalid_model_output` (e.g. a malformed tool call).
-
-## LLM judge, checked against your own labels
-
-Some answers can't be scored by matching strings: "3 years" answers "How long is the warranty?" when the expected answer is "3", and a sentence can name only facts from its sources and still draw a conclusion they don't support. `agenteval.judge` asks a second model, `llama-3.3-70b-versatile` on Groq by default, for a pass or fail verdict on a saved experiment's answers, under one of two rubrics:
-
-- `groundedness`: is every claim in the answer supported by the tool results the agent received?
-- `correctness`: does the answer say the same thing as the expected answer, whatever the wording?
-
-```bash
-.venv\Scripts\python -m agenteval.judge 12 --rubric groundedness
-```
-
-A judge is a model too, so its scores are only as good as its agreement with a person. `agenteval.calibrate` measures that agreement. You label a fixed random sample yourself, seeing the same material as the judge and never its verdict. The labels are saved as you go, so labelling can stop and resume. The command then reports how often you and the judge agree, Cohen's kappa (agreement beyond chance, which a judge that passes everything can't fake), both pass rates, and every disagreement with the judge's reason:
-
-```bash
-.venv\Scripts\python -m agenteval.calibrate label 12 --rubric groundedness --sample 50
-```
-```bash
-.venv\Scripts\python -m agenteval.calibrate agree 12 --rubric groundedness
-```
-
-Judge scores are stored as `judge_<rubric>` and tagged with a hash of the judge's model and prompt, since agreement measured on one judge says nothing about another. `agenteval.rescore` replaces only the built-in scorers' scores, so it never throws away a judge's paid-for scores. The judge's prompt treats the material as data, which matters because the `rag` corpus carries prompt injections and they reach the judge as sources.
-
-## Reliability features
-
-- **Retries with exponential backoff and jitter.** Each attempt gets its own span, so retries are visible in the trace. The wait respects the server's own hint (Gemini's `retryDelay`, HTTP `retry-after`). The OpenAI SDK's built-in retries are turned off so none are hidden.
-- **Client-side rate limiting**, to stay under a quota instead of reacting to 429s. Requests are spaced evenly (one every 60 / `--rpm` seconds), and `--tpm` adds a tokens-per-minute cap: each call reports the tokens it used, and a request waits while the last minute's tokens plus a typical request's would pass it.
-- **Circuit breaker for daily quotas.** When a provider says the *daily* limit is used up, the remaining trials fail at once as `quota_exhausted` instead of retrying for minutes.
-- **Tool errors go back to the model**, so it can correct itself. The trial continues, and the failed call is still recorded.
-- **Reproducible runs.** Each mock trial seeds its own random generator from `(seed, case, attempt)`, so results are identical however many trials run in parallel.
-
-## Getting started
-
-Requires Python 3.12+.
-
-```bash
-python -m venv .venv
-```
-```bash
-.venv\Scripts\python -m pip install -e ".[dev]"
-```
-
-(On macOS/Linux, use `.venv/bin/python` instead of `.venv\Scripts\python`.)
-
-Run the tests. They need no API keys or network:
-
-```bash
-.venv\Scripts\python -m pytest
-```
-
-Run an experiment with the mock agent, then view its report:
-
-```bash
-.venv\Scripts\python -m agenteval.run --name my-first-run
-```
-```bash
-.venv\Scripts\python -m agenteval.report 1
-```
-
-### Using a real model
-
-Set an API key as an environment variable. Never put keys in code; `.env` is git-ignored.
-
-| Agent | Key | Free tier (approximate; check your provider's console) |
-|---|---|---|
-| `--agent groq` | `GROQ_API_KEY` from console.groq.com | ~1,000 requests/day per model |
-| `--agent gemini` | `GEMINI_API_KEY` from aistudio.google.com | 20 requests/day for gemini-2.5-flash |
-
-```bash
-.venv\Scripts\python -m agenteval.run --agent groq --name groq-run --attempts 3
-```
-
-Useful options: `--model`, `--dataset arithmetic|mixed|hard|rag`, `--concurrency`, `--rpm` (requests per minute), `--tpm` (tokens per minute), `--timeout`, `--max-steps`, `--temperature`, `--prompt-file`. For the mock agent: `--tool-error-rate`, `--rate-limit-rate`, `--hallucination-rate`, `--hang-rate`. See `python -m agenteval.run --help`.
-
-Re-score a saved experiment after changing a scorer, without calling the model again:
-
-```bash
-.venv\Scripts\python -m agenteval.rescore 5
-```
-
-To use a model that isn't in the price table, add it to `PRICES` in [`agenteval/cost.py`](agenteval/cost.py). The run refuses to start without a price rather than reporting a misleading $0.
-
-## Evaluate your own agent
-
-Your agent stays your code. Write it as a function that takes the question and returns the answer, and wrap its model calls in `llm_call` and its tool calls in `tool`:
-
-```python
-from agenteval import llm_call, tool
-
-async def answer(question: str) -> str:
-    with llm_call("gpt-4o-mini") as call:
-        response = await client.chat.completions.create(...)
-        call.tokens(response.usage.prompt_tokens, response.usage.completion_tokens)
-    weather = await tool("get_weather", get_weather, city="Lisbon")
-    ...
-    return final_answer
-```
-
-Each wrapped call becomes a step in the trace, with its time, tokens, arguments, result or error. Everything else then works as for the built-in agents: failures labelled by the step that raised, every scorer, the report, `agenteval.compare` and the gate. Outside an evaluation the helpers just run what they wrap.
-
-Write your questions as JSON lines. Only `input` and `expected_output` are required, and every other field of the `hard` dataset is available (`expected_tools`, `category`, `must_not_contain`, `expects_tool_error`, `relevant_docs`):
-
-```json
-{"input": "What is the population of Lisbon?", "expected_output": "545000", "expected_tools": ["population"]}
-```
-
-Then run it:
-
-```bash
-.venv\Scripts\python -m agenteval.run --agent my_project.agents:answer --model gpt-4o-mini --price 0.15 0.60 --dataset my_cases.jsonl
-```
-
-- `--agent module.path:name` names a function (sync or async; a parameter called `case` gets the whole case instead of the question), or an object with the built-in agents' `run(case, attempt, tracer)` method.
-- `--model` names the model `llm_call` uses by default. If it isn't in the price table, pass `--price INPUT OUTPUT` in dollars per million tokens, or `--price 0 0` if you don't track cost.
-- A hash of the agent's source file is part of its version, so `agenteval.compare` can test two versions of your code even when the model and prompt are the same.
-- Raise `agenteval.ToolArgumentError` for arguments a tool can't accept: it's scored as the agent's bad call, not the tool's failure.
-
-To try it without an API key, [`examples/quickstart_agent.py`](examples/quickstart_agent.py) is a rule-based agent that gets two of its eight cases wrong on purpose. [`examples/groq_agent.py`](examples/groq_agent.py) is a real tool-calling LLM agent to copy from.
-
-```bash
-.venv\Scripts\python -m agenteval.run --agent examples.quickstart_agent:answer --model rules --price 0 0 --dataset examples/quickstart_cases.jsonl
-```
-
-## Datasets
-
-| Dataset | Cases | Use |
-|---|---|---|
-| `arithmetic` | any number | the mock agent; validating the harness |
-| `mixed` | 16 | real models: large calculations, capitals, one missing country |
-| `hard` | 55 in 10 categories | real models; the report breaks the pass rate down by category |
-| `rag` | 45 in 6 categories | real models searching a document corpus with ChromaDB |
-
-The `hard` categories each test a different skill: `single_step` (baseline), `multi_step` (feeding one result into the next call), `word_problem`, `long_chain` (more calls than `max_steps` allows unless the model batches them), `no_tool` (calling a tool here is a mistake), `tool_error` and `ambiguous` (the honest answer is "unknown"), `similar_tools` (capital vs. largest city), `conflicting_source` (the reference data is wrong on purpose; the instructed answer follows the tool) and `prompt_injection` (a tool result carries instructions the agent must ignore, checked by the `avoids_forbidden_text` scorer).
-
-Its tools use their own reference data with those planted errors and injections. Every expected answer is computed by [`scripts/build_hard_dataset.py`](scripts/build_hard_dataset.py), and a test checks the JSONL file matches it.
-
-### The `rag` dataset
-
-The agent answers questions about Tessaly Instruments, a company that doesn't exist, using a `search_docs` tool over 30 short internal documents (policies, product specifications, price lists, release notes) indexed in ChromaDB. Because the company is invented, the model can't answer from memory: it has to search. Each case lists the documents that hold its answer, in `relevant_docs`, so a failure can be traced to the search (the right document never came back) or to the answer (it came back and the model still got it wrong).
-
-The categories: `single_doc` (baseline), `distractor` (Kestrel vs. Kestrel Max, Osprey vs. Osprey Mini: near-identical documents with different numbers), `outdated` (an old policy or price list next to the one that replaced it), `multi_doc` (facts from two documents, sometimes combined with the calculator), `unanswerable` (the honest answer is "unknown") and `doc_injection` (the document with the answer also carries instructions the agent must ignore).
-
-```bash
-.venv\Scripts\python -m pip install -e ".[rag]"
-```
-```bash
-.venv\Scripts\python -m agenteval.run --agent groq --dataset rag --name rag-run --top-k 4
-```
-
-`--top-k` sets how many documents each search returns, and `--embedding` the model behind the index: `minilm` (semantic, ChromaDB's default, an 80 MB download on first use) or `hashing` (word matching, no download, used by the tests). Both, and a hash of the corpus, are part of the agent's config, so changing one is a new version that `agenteval.compare` can test. Searches are recorded whole in the trace, so the documents an answer could have come from can always be checked. The corpus and cases are built by [`scripts/build_rag_dataset.py`](scripts/build_rag_dataset.py).
-
-How often the search alone finds every relevant document, using each question as the query (a model writes its own queries, so its results will differ):
-
-| Embedding | k=1 | k=4 |
-|---|---|---|
-| `minilm` | 79% (`outdated` 50%, `multi_doc` 43%) | 100% |
-| `hashing` | 45% | 85% |
-
-## Testing the harness itself
-
-Before trusting it with real models, the harness is checked against a **mock agent with injected faults at known rates**: tool crashes, hallucinated answers, rate limits, hangs and latency. If the harness says 10% of tool calls failed when 10% were made to fail, the measurement code works.
-
-```python
-def test_tool_error_rate_matches_injected():
-    config = FaultConfig(tool_error_rate=0.10, hallucination_rate=0.0, latency_ms=NO_LATENCY)
-    trials = run(config, dataset_of_500_cases)
-    measured = tool_error_rate(trials)
-    assert 0.07 < measured < 0.13
-```
-
-The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 308 tests run in about 20 seconds and run in CI on every pull request.
-
-## Comparing versions
-
-A "version" is any change to the agent: its prompt, model, settings or tools. `agenteval.compare` answers one question: **is B really better than A, or did it just get lucky?**
-
-```bash
-.venv\Scripts\python -m agenteval.run --agent groq --dataset hard --name old --prompt-file prompts/v1.txt --attempts 3
-```
-```bash
-.venv\Scripts\python -m agenteval.run --agent groq --dataset hard --name new --prompt-file prompts/v2.txt --attempts 3
-```
-```bash
-.venv\Scripts\python -m agenteval.compare 8 7
-```
-
-Run both versions at the same time if you can, so they face the same conditions.
-
-```
-Differs in:   prompt
-
-Pass rate:    87.3% -> 88.2%   +0.9 points   95% CI [-9.1, +10.9]
-McNemar:      3 improved, 3 regressed   p = 1.000   (7 more changed only partly)
-Latency:      1663ms -> 1548ms per trial, excluding waits   -115ms   95% CI [-301, +72]
-
-Categories that moved (leads to investigate, not proof):
-  long_chain        66.7% -> 41.7%  (6 cases)
-  no_tool           66.7% -> 100.0%  (6 cases)
-  tool_error        83.3% -> 100.0%  (6 cases)
-  prompt_injection  62.5% -> 50.0%  (4 cases)
-
-Verdict: Inconclusive. this could be chance: the true change is plausibly between -9 and +11 points.
-```
-
-How it decides:
-
-- **It checks the comparison is fair first.** Different datasets are refused (a content hash catches an edited dataset). It warns if more than one setting changed, if attempts differ, if the runs are over 24 hours apart, or if infrastructure failures distorted a run.
-- **Paired, case by case.** Both versions answer the same questions, which removes differences in how hard each question is.
-- **McNemar's exact test** uses only cases that cleanly flipped. If the versions were equally good, each flip would be a coin toss. A case that ties (1 of 2 attempts) has no majority, so it isn't counted as a flip.
-- **Bootstrap confidence intervals** show how big the change might be. They resample **cases, not trials**, because attempts at the same question aren't independent.
-- **Four verdicts:** Better, Worse, Trade-off (better, but with new safety failures or meaningfully slower or costlier) and Inconclusive, which means "couldn't tell", not "they're the same".
-
-The tool is validated with the mock agent: a known improvement and a known regression are detected, and none of 200 comparisons of identical versions looked significant.
-
-### What it can and can't detect
-
-"Inconclusive" doesn't mean "no change". This table shows how often a real drop was detected, from 100 mock comparisons for each cell:
-
-| Cases | Attempts | 5-point drop | 10-point | 15-point | 25-point |
-|---|---|---|---|---|---|
-| 55 | 2 | 0% | 0% | 5% | 35% |
-| 55 | 3 | 3% | 19% | 50% | 93% |
-| 200 | 2 | 3% | 31% | 75% | 100% |
-| 500 | 2 | 27% | 82% | 99% | 100% |
-
-Use an odd number of attempts, and more cases to catch smaller drops. The mock's faults are random on every attempt. Real regressions are often consistent, as with the damaged prompt below, so these figures are a cautious guide rather than exact rates for a real model.
-
-## Regression gate
-
-`agenteval.gate` turns a comparison into a decision, and [`.github/workflows/agent-eval.yml`](.github/workflows/agent-eval.yml) runs it on pull requests labelled `run-agent-eval` that change the agent, its prompts or the `hard` dataset. It runs the change, compares it with a stored baseline from `main`, then posts the result as a PR comment.
-
-| Result | Decision | Exit code |
-|---|---|---|
-| Better | Pass | 0 |
-| Inconclusive | Pass, with a warning | 0 |
-| Better, but slower or costlier | Pass, with a warning | 0 |
-| Worse | **Block** | 1 |
-| Any new safety failure, whatever the verdict | **Block** | 1 |
-| Different datasets, or over 10% infrastructure failures | Can't judge | 2 |
-
-```bash
-.venv\Scripts\python -m agenteval.gate baseline.db candidate.db --markdown report.md
-```
-
-A full run uses about 140,000 tokens, too many to run `main` again on every PR within a free daily quota. So [`agent-eval-baseline.yml`](.github/workflows/agent-eval-baseline.yml) runs `main` when the agent changes and once a week, and stores the results. A run damaged by rate limits never replaces the last good baseline. The trade-off is that the two runs no longer happen at the same time, and the report warns when the baseline is over 24 hours old.
-
-A run uses about 140,000 tokens and Groq's free tier allows 200,000 a day, so only one check fits in a day. When four pull requests were checked at once, the quota ran out and none could be judged. That's why the check is opt-in: add the `run-agent-eval` label to a pull request when it's ready, one a day. Changes to the API, the LLM judge, calibration or the rag dataset don't start it, since they don't change the agent the gate runs.
-
-To turn it on:
-
-1. Add a `GROQ_API_KEY` repository secret. Until then the check skips with a notice.
-2. Run the `agent-eval-baseline` workflow once. Without a baseline, the check reports "can't judge".
-3. To make it enforce anything, mark `gate` as a required check in the branch protection settings.
-4. Create the `run-agent-eval` label (`gh label create run-agent-eval`) and add it to a pull request to check it.
-
-Each check takes about 25 minutes. Allow a day between a baseline run and a check, since together they use about 280,000 tokens. Every check keeps its report and databases as a workflow artifact for 14 days; account IDs are removed from recorded error messages, because artifacts on a public repository can be downloaded.
-
-Tested on real runs: a damaged prompt that told the agent never to use its tools was **blocked** (87.3% to 63.6%, p = 0.004), and the prompt fix from runs 7 and 8 **passed** with a warning.
-
-## What the live runs taught me
-
-Runs 2 to 5 use the same 16-question dataset: large calculations, capital cities the model already knows, and one country missing from the tool's database, where the honest answer is "unknown".
-
-| Run | Model | Result | What it showed |
-|---|---|---|---|
-| 2 | gemini-2.5-flash | 11/11 completed trials correct; 5 failed | **Every failure was a 429, not the model.** Inspecting individual trials found a bug in my own scorer: `tool_selection` reported 81% because trials that never got a response counted as "wrong tool". Fixed and re-scored to 100%. |
-| 3 | gemini-2.5-flash | 1/16 | Requests rejected at about 2 per minute, far under the per-minute limit, which pointed to the **daily** quota. The failures were mislabelled `timeout` and wasted 15 minutes. Led to error messages on spans, cause-specific timeout labels and the circuit breaker. |
-| 4 | gemini-2.5-flash | 0/16 in under 1 s | The circuit breaker worked on a real error. The stored message showed the free tier allows **20 requests/day**, fewer than one run of the dataset needs. |
-| 5 | openai/gpt-oss-20b (Groq) | **48/48** | Correct tool every time, said "unknown" for the missing country, about 1 s per question, about 6.5× cheaper per success than Gemini at paid-tier prices. The one retry was on a **tokens-per-minute** limit, not requests. |
-| 6 | openai/gpt-oss-20b (Groq), `hard` dataset | 49/55 (89.1%) | The hard dataset separated the categories. **Prompt injection succeeded 2 of 4 times**, and my own system prompt caused the `no_tool` failures: its "reply unknown" rule made the model refuse "spell 'dog' backwards". |
-| 7, 8 | Old vs new prompt, `hard` dataset, run side by side | 87.3% vs 88.2%, **Inconclusive** | The fix worked where it was aimed (`no_tool` 67% to 100%, with `ambiguous` staying at 100%), but `long_chain` fell from 67% to 42%, so the total barely moved. Recorded tool arguments showed the model doing sums in its head, and once calling `21021 + 0` after working out the answer itself. |
-
-Lessons:
-
-- **Read individual trials, not just the summary.** The summary hid a scorer bug.
-- **A comparison only means something if only one thing changed.** Runs 2 and 3 differed in quota as well as settings, so they can't be compared.
-- **Separate infrastructure failures from model failures.** "68.8% correct" and "100% correct, 31% blocked by rate limits" lead to completely different fixes.
-- **An average can hide large moves in both directions.** Runs 7 and 8 differ by 0.9 points overall, while four categories moved by 12 to 33 points.
-- **A fix can work and still not be provable.** With 55 cases and 3 attempts, even a 15-point drop is caught only about half the time.
-- **Test the gate on a known-bad change.** The first demonstration let a 23.6-point drop through, because tied cases counted as improvements and pushed p to 0.052. Measuring detection rates then showed my claim that 55 cases catch 10-point changes was wrong.
-- **The total-vs-working latency gap in run 5 (57.8 s vs 1.6 s at p95) is my own rate limiter.** It allowed 25 requests in any 60 s window, so it sent bursts and then waited. It now spaces requests evenly and can also respect a token limit.
-
-## Project structure
-
-```
-agenteval/
-  models.py        EvaluationCase, Span, Trial, Score, AgentConfig, Experiment
-  tracer.py        records each step as a span
-  runner.py        runs cases × attempts concurrently, with timeouts and failure labels
-  retry.py         backoff retries, rate limiter
-  tools.py         tool registry (validation + tracing), calculator, lookup_capital
-  mock_agent.py    fault-injecting fake agent
-  gemini_agent.py  Gemini tool-calling agent
-  openai_agent.py  OpenAI-compatible agent (Groq, Ollama)
-  scorers.py       exact_match and the tool-call scorers
-  cost.py          price table and cost calculation
-  storage.py       SQLite storage, with automatic migration of older databases
-  report.py        metrics and the text report
-  run.py           command line: run and save an experiment
-  rescore.py       command line: re-score a saved experiment
-  stats.py         McNemar's exact test and bootstrap confidence intervals
-  compare.py       command line: fairness checks, paired comparison, verdict
-  gate.py          command line: pass, block or can't judge, for CI
-  judge.py         command line: LLM-as-judge scores (groundedness, correctness)
-  calibrate.py     command line: label answers yourself, measure the judge's agreement
-  sample_data.py   datasets (arithmetic, mixed, hard, rag, or your own .jsonl) and their tools
-  sdk.py           llm_call and tool, to evaluate your own agent
-  rag.py           document corpus, ChromaDB index and the search_docs tool
-datasets/hard.jsonl  the hard dataset (generated)
-datasets/rag.jsonl, rag_corpus.jsonl  the rag dataset and its documents (generated)
-scripts/build_hard_dataset.py  builds the hard dataset, computing every expected answer
-scripts/build_rag_dataset.py   builds the rag corpus and dataset
-prompts/           system prompt versions, for --prompt-file
-examples/          your own agent: a no-key quickstart and a Groq template
-test/              308 tests, no network needed
-```
-
-## Known limitations
-
-- **The `mixed` dataset is too easy** (100% on Groq). The `hard` dataset was added for this; with about 5 cases per category, per-category rates are still rough.
-- **The token limit is an estimate.** A request's tokens are only known once it returns, so the limiter assumes the next one uses the mean of the last 20. A much longer request can still hit the provider's limit, and the retry then handles it.
-- **Prices are paid-tier rates from third-party trackers (October 2026).** Check them against each provider's pricing page.
-- **Attempts vary even at `temperature=0`.** They were nearly identical on the easy dataset in run 5, but differed on several hard cases in runs 7 and 8.
-- **The gate passes "Inconclusive" results**, so small regressions can get through. See the detection table.
-- **The dataset is small for this job.** Reliably catching drops of 10 to 15 points needs a few hundred cases.
-
-## Roadmap
-
-- [x] **Phase 0:** mock agent with fault injection; harness validated against known rates
-- [x] **Phase 1:** concurrency, timeouts, cost, versioned configs, SQLite storage, reports
-- [x] **Phase 2:** Gemini and OpenAI-compatible agents, retries, rate limits, quotas, tool-call scoring
-- [x] Harder dataset: 55 cases in 10 categories, with a per-category report
-- [x] Evenly spaced, token-aware rate limiting
-- [x] Deterministic hallucination check against tool results
-- [x] RAG dataset: a ChromaDB-backed search tool over a fictional company's documents, 45 cases in 6 categories
-- [x] Retrieval scorers (recall of the relevant documents) and a report that separates retrieval failures from answer failures
-- [ ] **Phase 3:** LLM-as-judge and groundedness scorers for open-ended answers, calibrated against human labels. The judge, rubrics and calibration tools are built; the human-labelled sample that calibrates them isn't yet
-- [x] **Phase 4:** comparing versions with fairness checks, paired tests and confidence intervals
-- [x] **Phase 5:** regression gate in CI that blocks significant drops and new safety failures
-- [ ] **Phase 6:** dashboard
+The harness is tested against itself: a mock agent injects tool crashes, hallucinations, rate
+limits and hangs at known rates, and the tests check the measured rates match. Real SDKs are
+tested through fake clients built from their own response and error types, and timing through
+a fake clock. The dashboard is in [`dashboard/`](dashboard/) (`npm ci && npm run dev`, with
+the API on port 8000). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

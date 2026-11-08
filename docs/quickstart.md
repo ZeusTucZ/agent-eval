@@ -55,7 +55,7 @@ async def answer(question: str) -> str:
 ```
 
 Using an OpenAI client? `wrap_openai(client)` records every call for you; LangChain and
-LangGraph have a callback. See Connect your agent.
+LangGraph have a callback. See [Connect your agent](guides/your-agent.md).
 
 Then set the model and its price in `agenteval.toml`:
 

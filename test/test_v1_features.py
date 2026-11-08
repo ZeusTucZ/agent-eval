@@ -493,3 +493,9 @@ def test_evaluate_needs_a_price():
 
 def test_llm_call_and_tool_are_exported_from_the_package():
     assert callable(llm_call) and callable(tool) and os.path.basename(__file__)
+
+def test_the_cli_reference_matches_every_commands_help():
+    # Generated; if this fails, run: python scripts/build_cli_reference.py
+    from scripts.build_cli_reference import OUTPUT, build
+
+    assert OUTPUT.read_text(encoding="utf-8") == build()
