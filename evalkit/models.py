@@ -19,6 +19,9 @@ class EvaluationCase(BaseModel):
     # The tool is meant to fail here (division by zero, a missing record): the test is how the
     # agent handles the error, so a failed tool call isn't held against it.
     expects_tool_error: bool = False
+    # Retrieval cases: the ids of the documents the answer is in, all of which a search should
+    # find. [] means no document has the answer; None means the case involves no retrieval.
+    relevant_docs: list[str] | None = None
 
     @property
     def required_tools(self) -> list[str] | None:
@@ -97,7 +100,17 @@ class Experiment(BaseModel):
     created_at: datetime
     dataset_version: str | None = None  # None for experiments saved before Phase 4
 
+# Fields added to EvaluationCase after dataset versions were first stored. Left out of the
+# hash while unset, so adding a field doesn't make every saved experiment look like it ran
+# on a different dataset (compare and the gate refuse to compare those).
+FIELDS_ADDED_LATER = {"relevant_docs"}
+
 def dataset_version(cases: list[EvaluationCase]) -> str:
     """Content hash of a dataset: if any case changes, runs are no longer comparable."""
-    content = json.dumps([case.model_dump() for case in cases], sort_keys=True, ensure_ascii=False)
+    dumped = [
+        {name: value for name, value in case.model_dump().items()
+         if not (name in FIELDS_ADDED_LATER and value is None)}
+        for case in cases
+    ]
+    content = json.dumps(dumped, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(content.encode()).hexdigest()[:12]

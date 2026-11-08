@@ -157,6 +157,7 @@ export default function RunForm({ token, onTokenChange, onExperimentReady }: Pro
             <option value="arithmetic">arithmetic</option>
             <option value="mixed">mixed</option>
             <option value="hard">hard</option>
+            <option value="rag">rag</option>
           </select>
         </label>
         {dataset === "arithmetic" ? (

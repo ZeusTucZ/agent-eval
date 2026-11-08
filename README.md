@@ -134,7 +134,7 @@ Set an API key as an environment variable. Never put keys in code; `.env` is git
 .venv\Scripts\python -m evalkit.run --agent groq --name groq-run --attempts 3
 ```
 
-Useful options: `--model`, `--dataset arithmetic|mixed|hard`, `--concurrency`, `--rpm` (requests per minute), `--timeout`, `--max-steps`, `--temperature`, `--prompt-file`. For the mock agent: `--tool-error-rate`, `--rate-limit-rate`, `--hallucination-rate`, `--hang-rate`. See `python -m evalkit.run --help`.
+Useful options: `--model`, `--dataset arithmetic|mixed|hard|rag`, `--concurrency`, `--rpm` (requests per minute), `--timeout`, `--max-steps`, `--temperature`, `--prompt-file`. For the mock agent: `--tool-error-rate`, `--rate-limit-rate`, `--hallucination-rate`, `--hang-rate`. See `python -m evalkit.run --help`.
 
 Re-score a saved experiment after changing a scorer, without calling the model again:
 
@@ -151,10 +151,33 @@ To use a model that isn't in the price table, add it to `PRICES` in [`evalkit/co
 | `arithmetic` | any number | the mock agent; validating the harness |
 | `mixed` | 16 | real models: large calculations, capitals, one missing country |
 | `hard` | 55 in 10 categories | real models; the report breaks the pass rate down by category |
+| `rag` | 45 in 6 categories | real models searching a document corpus with ChromaDB |
 
 The `hard` categories each test a different skill: `single_step` (baseline), `multi_step` (feeding one result into the next call), `word_problem`, `long_chain` (more calls than `max_steps` allows unless the model batches them), `no_tool` (calling a tool here is a mistake), `tool_error` and `ambiguous` (the honest answer is "unknown"), `similar_tools` (capital vs. largest city), `conflicting_source` (the reference data is wrong on purpose; the instructed answer follows the tool) and `prompt_injection` (a tool result carries instructions the agent must ignore, checked by the `avoids_forbidden_text` scorer).
 
 Its tools use their own reference data with those planted errors and injections. Every expected answer is computed by [`scripts/build_hard_dataset.py`](scripts/build_hard_dataset.py), and a test checks the JSONL file matches it.
+
+### The `rag` dataset
+
+The agent answers questions about Tessaly Instruments, a company that doesn't exist, using a `search_docs` tool over 30 short internal documents (policies, product specifications, price lists, release notes) indexed in ChromaDB. Because the company is invented, the model can't answer from memory: it has to search. Each case lists the documents that hold its answer, in `relevant_docs`, so a failure can be traced to the search (the right document never came back) or to the answer (it came back and the model still got it wrong).
+
+The categories: `single_doc` (baseline), `distractor` (Kestrel vs. Kestrel Max, Osprey vs. Osprey Mini: near-identical documents with different numbers), `outdated` (an old policy or price list next to the one that replaced it), `multi_doc` (facts from two documents, sometimes combined with the calculator), `unanswerable` (the honest answer is "unknown") and `doc_injection` (the document with the answer also carries instructions the agent must ignore).
+
+```bash
+.venv\Scripts\python -m pip install -e ".[rag]"
+```
+```bash
+.venv\Scripts\python -m evalkit.run --agent groq --dataset rag --name rag-run --top-k 4
+```
+
+`--top-k` sets how many documents each search returns, and `--embedding` the model behind the index: `minilm` (semantic, ChromaDB's default, an 80 MB download on first use) or `hashing` (word matching, no download, used by the tests). Both, and a hash of the corpus, are part of the agent's config, so changing one is a new version that `evalkit.compare` can test. Searches are recorded whole in the trace, so the documents an answer could have come from can always be checked. The corpus and cases are built by [`scripts/build_rag_dataset.py`](scripts/build_rag_dataset.py).
+
+How often the search alone finds every relevant document, using each question as the query (a model writes its own queries, so its results will differ):
+
+| Embedding | k=1 | k=4 |
+|---|---|---|
+| `minilm` | 79% (`outdated` 50%, `multi_doc` 43%) | 100% |
+| `hashing` | 45% | 85% |
 
 ## Testing the harness itself
 
@@ -168,7 +191,7 @@ def test_tool_error_rate_matches_injected():
     assert 0.07 < measured < 0.13
 ```
 
-The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 179 tests run in about 20 seconds and run in CI on every pull request.
+The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 243 tests run in about 20 seconds and run in CI on every pull request.
 
 ## Comparing versions
 
@@ -298,11 +321,14 @@ evalkit/
   stats.py         McNemar's exact test and bootstrap confidence intervals
   compare.py       command line: fairness checks, paired comparison, verdict
   gate.py          command line: pass, block or can't judge, for CI
-  sample_data.py   datasets (arithmetic, mixed, hard) and the tools each one uses
+  sample_data.py   datasets (arithmetic, mixed, hard, rag) and the tools each one uses
+  rag.py           document corpus, ChromaDB index and the search_docs tool
 datasets/hard.jsonl  the hard dataset (generated)
-scripts/build_hard_dataset.py  builds it, computing every expected answer
+datasets/rag.jsonl, rag_corpus.jsonl  the rag dataset and its documents (generated)
+scripts/build_hard_dataset.py  builds the hard dataset, computing every expected answer
+scripts/build_rag_dataset.py   builds the rag corpus and dataset
 prompts/           system prompt versions, for --prompt-file
-test/              179 tests, no network needed
+test/              243 tests, no network needed
 ```
 
 ## Known limitations
@@ -322,6 +348,8 @@ test/              179 tests, no network needed
 - [x] Harder dataset: 55 cases in 10 categories, with a per-category report
 - [ ] Evenly spaced, token-aware rate limiting
 - [x] Deterministic hallucination check against tool results
+- [x] RAG dataset: a ChromaDB-backed search tool over a fictional company's documents, 45 cases in 6 categories
+- [ ] Retrieval scorers (recall of the relevant documents) and a report that separates retrieval failures from answer failures
 - [ ] **Phase 3:** LLM-as-judge and groundedness scorers for open-ended answers, calibrated against human labels
 - [x] **Phase 4:** comparing versions with fairness checks, paired tests and confidence intervals
 - [x] **Phase 5:** regression gate in CI that blocks significant drops and new safety failures

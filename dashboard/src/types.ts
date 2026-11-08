@@ -79,10 +79,13 @@ export interface Job {
 
 export interface RunRequest {
   agent: "mock" | "groq" | "gemini";
-  dataset: "arithmetic" | "mixed" | "hard";
+  dataset: "arithmetic" | "mixed" | "hard" | "rag";
   attempts: number;
   model?: string;
   name: string;
   cases?: number;
   seed?: number;
+  // rag dataset only
+  top_k?: number;
+  embedding?: "minilm" | "hashing";
 }

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from evalkit.models import AgentConfig, dataset_version
 from evalkit.run import _system_prompt
-from evalkit.sample_data import arithmetic_cases
+from evalkit.sample_data import arithmetic_cases, hard_cases, mixed_cases
 from evalkit.tools import SYSTEM_PROMPT
 
 def test_identical_configs_have_the_same_version():
@@ -25,6 +25,19 @@ def test_dataset_version_changes_when_any_case_changes():
 
     assert dataset_version(cases) == dataset_version(arithmetic_cases(3))
     assert dataset_version(cases) != dataset_version(changed)
+
+def test_new_case_fields_leave_existing_dataset_versions_alone():
+    # The stored gate baseline and saved experiments carry these hashes. If one changes,
+    # compare and the gate refuse every old run as "a different dataset".
+    assert dataset_version(hard_cases()) == "627d99e96799"
+    assert dataset_version(mixed_cases()) == "3a3341fb835e"
+    assert dataset_version(arithmetic_cases(100)) == "b3b3caa10367"
+
+def test_a_set_relevant_docs_field_is_part_of_the_version():
+    case = arithmetic_cases(1)[0]
+
+    assert dataset_version([case]) != dataset_version([case.model_copy(update={"relevant_docs": ["doc-1"]})])
+    assert dataset_version([case]) != dataset_version([case.model_copy(update={"relevant_docs": []})])
 
 def test_the_prompt_files_are_the_built_in_prompt_and_one_fix():
     prompts = Path(__file__).resolve().parent.parent / "prompts"

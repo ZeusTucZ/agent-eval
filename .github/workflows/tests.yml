@@ -17,7 +17,8 @@ jobs:
           cache: pip
 
       - name: Install
-        run: pip install -e ".[dev]"
+        # rag too: without chromadb, test_rag_dataset.py is skipped rather than run.
+        run: pip install -e ".[dev,rag]"
 
       - name: Run tests
         run: pytest -v
