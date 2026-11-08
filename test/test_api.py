@@ -315,3 +315,93 @@ def test_a_request_connection_works_from_another_thread(tmp_path, monkeypatch):
     worker.start()
     worker.join()
     assert errors == []
+
+
+# --- 1.0: questions with trials, compare, manage, labels, read-only, the built dashboard ---
+
+
+def test_trials_carry_the_question_they_answered(client, tmp_path):
+    experiment_id = seed_experiment(tmp_path / "api.db")
+    trial = client.get(f"/api/experiments/{experiment_id}/trials").json()["trials"][0]
+    assert trial["case"] == {"input": "What is 1 + 1", "expected_output": "2", "category": "general"}
+
+
+def test_summaries_have_status_categories_and_other_scores(client, tmp_path):
+    experiment_id = seed_experiment(tmp_path / "api.db")
+    summary = client.get(f"/api/experiments/{experiment_id}").json()
+    assert summary["status"] == "completed"
+    assert summary["by_category"] == {"general": {"pass_rate": 1.0, "trials": 5}}
+    assert summary["other_scores"] == {}
+
+
+def test_compare_two_experiments(client, tmp_path):
+    a, b = seed_experiment(tmp_path / "api.db", "a"), seed_experiment(tmp_path / "api.db", "b")
+    result = client.get(f"/api/compare?a={a}&b={b}").json()
+    assert result["verdict"] == "Inconclusive" and result["cases_compared"] == 5
+    assert "the configs are identical: this measures noise, not a change" in result["warnings"]
+    assert client.get(f"/api/compare?a={a}&b=999").status_code == 404
+
+
+def test_rename_and_delete_need_the_token(client, tmp_path):
+    experiment_id = seed_experiment(tmp_path / "api.db")
+    assert client.patch(f"/api/experiments/{experiment_id}", json={"name": "x"}).status_code == 401
+    renamed = client.patch(f"/api/experiments/{experiment_id}", json={"name": "renamed"}, headers=auth_headers())
+    assert renamed.json()["name"] == "renamed"
+    assert client.get("/api/experiments").json()[0]["name"] == "renamed"  # the cached summary was dropped
+    assert client.delete(f"/api/experiments/{experiment_id}", headers=auth_headers()).status_code == 204
+    assert client.get(f"/api/experiments/{experiment_id}").status_code == 404
+    assert client.delete(f"/api/experiments/{experiment_id}", headers=auth_headers()).status_code == 404
+
+
+def test_labelling_in_the_browser_and_agreement(client, tmp_path):
+    experiment_id = seed_experiment(tmp_path / "api.db")
+    conn = storage.connect(tmp_path / "api.db")
+    from agenteval.models import Score
+    storage.replace_scores(conn, experiment_id, [Score(trial_id=t, scorer="judge_correctness", value=1.0,
+                                                       reasoning="judge x: same") for t in range(1, 6)],
+                           ["judge_correctness"])
+
+    queue = client.get(f"/api/experiments/{experiment_id}/labels?rubric=correctness").json()
+    assert queue["labelled"] == 0 and queue["judged"] == 5 and queue["agreement"] is None
+    first = queue["next"][0]
+    assert first["question"].startswith("What is") and first["expected"]
+
+    for item in queue["next"]:
+        response = client.post(f"/api/experiments/{experiment_id}/labels", headers=auth_headers(),
+                               json={"trial_id": item["trial_id"], "rubric": "correctness", "passed": True})
+        assert response.status_code == 200
+    done = client.get(f"/api/experiments/{experiment_id}/labels?rubric=correctness").json()
+    assert done["labelled"] == 5 and done["next"] == []
+    assert done["agreement"]["agreement"] == 1.0 and "label more" in done["agreement"]["reading"]
+    assert client.post(f"/api/experiments/{experiment_id}/labels", headers=auth_headers(),
+                       json={"trial_id": 99, "rubric": "correctness", "passed": True}).status_code == 404
+    assert client.get(f"/api/experiments/{experiment_id}/labels?rubric=nope").status_code == 400
+    assert {r["name"] for r in client.get("/api/rubrics").json()} >= {"groundedness", "correctness"}
+
+
+def test_read_only_mode_refuses_every_change(client, tmp_path, monkeypatch):
+    experiment_id = seed_experiment(tmp_path / "api.db")
+    monkeypatch.setenv("READ_ONLY", "1")
+    assert client.delete(f"/api/experiments/{experiment_id}", headers=auth_headers()).status_code == 403
+    assert client.post("/api/runs", json={"agent": "mock", "dataset": "arithmetic"},
+                       headers=auth_headers()).status_code == 403
+    assert client.get(f"/api/experiments/{experiment_id}").status_code == 200
+
+
+def test_the_built_dashboard_is_served_at_the_root(tmp_path, monkeypatch):
+    import importlib
+
+    import agenteval.api
+
+    (tmp_path / "index.html").write_text("<!doctype html><title>agenteval</title>")
+    monkeypatch.setenv("AGENTEVAL_STATIC_DIR", str(tmp_path))
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "s.db"))
+    reloaded = importlib.reload(agenteval.api)
+    try:
+        with TestClient(reloaded.app) as static_client:
+            assert "agenteval" in static_client.get("/").text
+            assert static_client.get("/health").json() == {"status": "ok"}  # API routes still win
+            assert static_client.get("/api/experiments").json() == []
+    finally:
+        monkeypatch.delenv("AGENTEVAL_STATIC_DIR")
+        importlib.reload(agenteval.api)

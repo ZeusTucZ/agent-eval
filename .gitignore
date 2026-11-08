@@ -7,3 +7,5 @@ __pycache__/
 .env
 dashboard/node_modules/
 dashboard/dist/
+# The dashboard copied into the package at release time.
+agenteval/static/

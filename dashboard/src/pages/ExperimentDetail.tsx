@@ -3,6 +3,7 @@
 // latency breakdown and re-scoring sit in "Details" at the end.
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { go } from "../App";
 import type { ExperimentSummary, Trial } from "../types";
 import { humanize, ms, pct, rateTone, relativeTime, usd } from "../format";
 import Stat from "../components/Stat";
@@ -14,7 +15,6 @@ interface Props {
   id: number;
   token: string;
   onTokenChange: (token: string) => void;
-  onBack: () => void;
 }
 
 // Plain-language names for the checks, in the order they happen in a trial.
@@ -34,11 +34,12 @@ const DIAGNOSES: { key: string; label: string; tone?: "bad" }[] = [
   { key: "unsupported_correct", label: "Missed a document, right anyway" },
 ];
 
-export default function ExperimentDetail({ id, token, onTokenChange, onBack }: Props) {
+export default function ExperimentDetail({ id, token, onTokenChange }: Props) {
   const [experiment, setExperiment] = useState<ExperimentSummary | null>(null);
   const [trials, setTrials] = useState<Trial[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rescore, setRescore] = useState<{ kind: "info" | "success" | "error"; text: string } | null>(null);
+  const [newName, setNewName] = useState("");
 
   useEffect(() => {
     setError(null);
@@ -61,10 +62,30 @@ export default function ExperimentDetail({ id, token, onTokenChange, onBack }: P
     }
   }
 
+  async function handleRename() {
+    try {
+      setExperiment(await api.renameExperiment(id, newName.trim(), token));
+      setNewName("");
+      setRescore({ kind: "success", text: "Renamed." });
+    } catch (err) {
+      setRescore({ kind: "error", text: `Renaming failed: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  }
+
+  async function handleDelete() {
+    if (!window.confirm(`Delete experiment #${id} and all its trials? This can't be undone.`)) return;
+    try {
+      await api.deleteExperiment(id, token);
+      go("");
+    } catch (err) {
+      setRescore({ kind: "error", text: `Deleting failed: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  }
+
   const back = (
-    <button type="button" className="link" onClick={onBack} style={{ marginBottom: 20 }}>
+    <a className="link back" href="#/">
       ← All experiments
-    </button>
+    </a>
   );
 
   if (error) {
@@ -78,7 +99,7 @@ export default function ExperimentDetail({ id, token, onTokenChange, onBack }: P
   if (!experiment || trials === null) return <p className="skeleton">Loading experiment…</p>;
 
   const total = experiment.trial_count;
-  const passedCount = Math.round(experiment.pass_rate * total);
+  const passedCount = Math.round((experiment.pass_rate ?? 0) * total);
   const failureCount = Object.values(experiment.failures).reduce((n, c) => n + c, 0);
   const notPassed = total - passedCount;
   const topCause = Object.entries(experiment.failures).sort((a, b) => b[1] - a[1])[0];
@@ -87,6 +108,8 @@ export default function ExperimentDetail({ id, token, onTokenChange, onBack }: P
   const checks = CHECKS.filter((check) => (experiment.tool_rates[check.key] ?? null) !== null);
   const diagnosis = experiment.retrieval_diagnosis ?? {};
   const diagnosed = Object.values(diagnosis).reduce((n, c) => n + c, 0);
+  const categories = Object.entries(experiment.by_category ?? {});
+  const others = Object.entries(experiment.other_scores ?? {});
 
   return (
     <>
@@ -100,14 +123,22 @@ export default function ExperimentDetail({ id, token, onTokenChange, onBack }: P
             <span title={new Date(experiment.created_at).toLocaleString()}>{relativeTime(experiment.created_at)}</span>
           </p>
         </div>
+        <button type="button" onClick={() => go(`label/${id}`)}>Label answers</button>
       </div>
+
+      {experiment.status && experiment.status !== "completed" ? (
+        <p className="notice warn" style={{ marginBottom: 20 }}>
+          This run is {experiment.status}: {total} of {experiment.planned_trials ?? "?"} trials. The numbers cover only
+          those. Finish it from the terminal with the same options and <code>--resume {id}</code>.
+        </p>
+      ) : null}
 
       <div className="stats">
         <Stat
           label="Pass rate"
           value={pct(experiment.pass_rate)}
-          sub={`${passedCount} of ${total} trials`}
-          tone={rateTone(experiment.pass_rate)}
+          sub={experiment.pass_rate === null ? "no expected answers" : `${passedCount} of ${total} trials`}
+          tone={experiment.pass_rate === null ? undefined : rateTone(experiment.pass_rate)}
         />
         <Stat
           label="Didn't pass"
@@ -140,6 +171,21 @@ export default function ExperimentDetail({ id, token, onTokenChange, onBack }: P
         <FailureBreakdown failures={experiment.failures} trials={trials} />
       </section>
 
+      {categories.length > 1 ? (
+        <section>
+          <h2>By category</h2>
+          <p className="section-note">Where the agent is weakest. Few trials per category make these rough.</p>
+          <div className="bars">
+            {categories
+              .sort((x, y) => x[1].pass_rate - y[1].pass_rate)
+              .map(([name, row]) => (
+                <BarRow key={name} label={humanize(name)} share={row.pass_rate}
+                        value={`${pct(row.pass_rate, 0)} · ${row.trials}`} tone="accent" />
+              ))}
+          </div>
+        </section>
+      ) : null}
+
       {diagnosed > 0 ? (
         <section>
           <h2>Search or answer?</h2>
@@ -160,15 +206,22 @@ export default function ExperimentDetail({ id, token, onTokenChange, onBack }: P
         </section>
       ) : null}
 
-      {checks.length > 0 ? (
+      {checks.length + others.length > 0 ? (
         <section>
           <h2>Checks</h2>
-          <p className="section-note">Share of trials that passed each check that applies to this dataset.</p>
+          <p className="section-note">
+            Share of trials that passed each check that applies to this dataset
+            {others.length ? ", then the LLM judge's and your own scorers" : ""}.
+          </p>
           <div className="bars">
             {checks.map((check) => {
               const rate = experiment.tool_rates[check.key] ?? null;
               return <BarRow key={check.key} label={check.label} share={rate} value={pct(rate, 0)} tone="accent" />;
             })}
+            {others.map(([name, row]) => (
+              <BarRow key={name} label={humanize(name.replace(/^judge_/, "Judge: "))} share={row.mean}
+                      value={pct(row.mean, 0)} tone="accent" />
+            ))}
           </div>
         </section>
       ) : null}
@@ -180,11 +233,14 @@ export default function ExperimentDetail({ id, token, onTokenChange, onBack }: P
 
       <section>
         <details>
-          <summary>Details and re-scoring</summary>
+          <summary>Details, re-scoring and deleting</summary>
           <div style={{ display: "grid", gap: 28 }}>
             <table>
               <tbody>
                 <tr><td className="muted">Experiment</td><td className="mono">#{experiment.id}</td></tr>
+                {experiment.environment ? (
+                  <tr><td className="muted">Ran with</td><td>{experiment.environment}</td></tr>
+                ) : null}
                 <tr><td className="muted">Config version</td><td className="mono">{experiment.config_version}</td></tr>
                 <tr><td className="muted">Dataset version</td><td className="mono">{experiment.dataset_version ?? "n/a"}</td></tr>
                 <tr>
@@ -237,6 +293,26 @@ export default function ExperimentDetail({ id, token, onTokenChange, onBack }: P
                   {rescore.text}
                 </p>
               ) : null}
+            </form>
+
+            <form
+              className="form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleRename();
+              }}
+            >
+              <label>
+                Rename
+                <input type="text" value={newName} placeholder={experiment.name} maxLength={80}
+                       onChange={(e) => setNewName(e.target.value)} />
+              </label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="submit" disabled={!token || !newName.trim()}>Rename</button>
+                <button type="button" className="danger" disabled={!token} onClick={() => void handleDelete()}>
+                  Delete experiment
+                </button>
+              </div>
             </form>
           </div>
         </details>

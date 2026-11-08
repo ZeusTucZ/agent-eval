@@ -1,24 +1,23 @@
-// The ONLY place that knows the API base URL. It comes from VITE_API_URL,
-// baked in at build time (Render Static Site env var); locally it defaults
-// to the FastAPI dev server. No other file reads import.meta.env.
-//
-// Endpoints exposed here are exactly the 7 the API defines (agenteval/api.py):
-//   GET  /health
-//   GET  /api/experiments
-//   GET  /api/experiments/{id}
-//   GET  /api/experiments/{id}/trials
-//   POST /api/runs                 (X-API-Token required)
-//   GET  /api/runs/{id}
-//   POST /api/experiments/{id}/rescore  (X-API-Token required)
-import type { ExperimentSummary, Job, RunRequest, Trial } from "./types";
+// The only place that knows where the API is. VITE_API_URL is baked in at build time for a
+// separate deployment (a Render Static Site); without it the dashboard talks to the server
+// that served it, which is how `agenteval ui` runs. In development Vite proxies /api to
+// the FastAPI server on :8000 (see vite.config.ts).
+import type {
+  Comparison,
+  ExperimentSummary,
+  Job,
+  LabelQueue,
+  Rubric,
+  RunRequest,
+  Trial,
+} from "./types";
 
-const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "")
-  || "http://localhost:8000";
+const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) ?? "").replace(/\/$/, "");
 
-export const apiBaseUrl = API_URL;
+export const apiBaseUrl = API_URL || window.location.origin;
 
 interface ApiError {
-  detail?: string;
+  detail?: string | { msg?: string }[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -27,22 +26,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let message = `${res.status} ${res.statusText}`;
     try {
       const body = (await res.json()) as ApiError;
-      if (body.detail) message = body.detail;
+      if (typeof body.detail === "string") message = body.detail;
+      else if (Array.isArray(body.detail) && body.detail[0]?.msg) message = body.detail[0].msg;
     } catch {
       // Keep the HTTP status text when the error body is not JSON.
     }
     throw new Error(message);
   }
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
+
+function withToken(token: string, init: RequestInit = {}): RequestInit {
+  return { ...init, headers: { ...(init.headers ?? {}), "X-API-Token": token, "Content-Type": "application/json" } };
+}
+
+export const PAGE_SIZE = 50;
 
 export const api = {
   health(): Promise<{ status: string }> {
     return request("/health");
   },
 
-  listExperiments(): Promise<ExperimentSummary[]> {
-    return request("/api/experiments");
+  listExperiments(offset = 0): Promise<ExperimentSummary[]> {
+    return request(`/api/experiments?limit=${PAGE_SIZE}&offset=${offset}`);
   },
 
   getExperiment(id: number): Promise<ExperimentSummary> {
@@ -54,14 +61,7 @@ export const api = {
   },
 
   createRun(body: RunRequest, token: string): Promise<Job> {
-    return request("/api/runs", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Token": token,
-      },
-      body: JSON.stringify(body),
-    });
+    return request("/api/runs", withToken(token, { method: "POST", body: JSON.stringify(body) }));
   },
 
   getRun(jobId: string): Promise<Job> {
@@ -69,9 +69,33 @@ export const api = {
   },
 
   rescoreExperiment(id: number, token: string): Promise<ExperimentSummary> {
-    return request(`/api/experiments/${id}/rescore`, {
+    return request(`/api/experiments/${id}/rescore`, withToken(token, { method: "POST" }));
+  },
+
+  renameExperiment(id: number, name: string, token: string): Promise<ExperimentSummary> {
+    return request(`/api/experiments/${id}`, withToken(token, { method: "PATCH", body: JSON.stringify({ name }) }));
+  },
+
+  deleteExperiment(id: number, token: string): Promise<void> {
+    return request(`/api/experiments/${id}`, withToken(token, { method: "DELETE" }));
+  },
+
+  compare(a: number, b: number): Promise<Comparison> {
+    return request(`/api/compare?a=${a}&b=${b}`);
+  },
+
+  rubrics(): Promise<Rubric[]> {
+    return request("/api/rubrics");
+  },
+
+  labels(id: number, rubric: string): Promise<LabelQueue> {
+    return request(`/api/experiments/${id}/labels?rubric=${encodeURIComponent(rubric)}`);
+  },
+
+  addLabel(id: number, trialId: number, rubric: string, passed: boolean, token: string): Promise<void> {
+    return request(`/api/experiments/${id}/labels`, withToken(token, {
       method: "POST",
-      headers: { "X-API-Token": token },
-    });
+      body: JSON.stringify({ trial_id: trialId, rubric, passed }),
+    }));
   },
 };

@@ -38,6 +38,21 @@ def requests_per_client_per_minute() -> int:
     return int(os.environ.get("REQUESTS_PER_CLIENT_PER_MINUTE", "120"))
 
 
+def read_only() -> bool:
+    """READ_ONLY=1 refuses every change (runs, re-scoring, labels, deletes): for a public demo."""
+    return os.environ.get("READ_ONLY", "").lower() in ("1", "true", "yes")
+
+
+def static_dir() -> str | None:
+    """The built dashboard to serve at /: AGENTEVAL_STATIC_DIR, or the copy built into the
+    package (agenteval/static), if there is one."""
+    from pathlib import Path
+
+    configured = os.environ.get("AGENTEVAL_STATIC_DIR")
+    candidate = Path(configured) if configured else Path(__file__).resolve().parent / "static"
+    return str(candidate) if (candidate / "index.html").is_file() else None
+
+
 def port() -> int:
     """Local default 8000; Render injects its own PORT."""
     return int(os.environ.get("PORT", "8000"))

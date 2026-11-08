@@ -4,6 +4,7 @@
 // agent only answers the arithmetic dataset, and real agents need a real dataset.
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { go } from "../App";
 import type { Job, RunRequest } from "../types";
 
 type Agent = RunRequest["agent"];
@@ -36,10 +37,9 @@ function datasetsFor(agent: Agent): Dataset[] {
 interface Props {
   token: string;
   onTokenChange: (token: string) => void;
-  onExperimentReady: (id: number) => void;
 }
 
-export default function RunForm({ token, onTokenChange, onExperimentReady }: Props) {
+export default function RunForm({ token, onTokenChange }: Props) {
   const [agent, setAgent] = useState<Agent>("mock");
   const [dataset, setDataset] = useState<Dataset>("arithmetic");
   const [attempts, setAttempts] = useState(3);
@@ -210,7 +210,7 @@ export default function RunForm({ token, onTokenChange, onExperimentReady }: Pro
           job.status === "completed" && job.experiment_id !== null ? (
             <div className="notice success" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
               <span>Finished.</span>
-              <button type="button" onClick={() => onExperimentReady(job.experiment_id as number)}>
+              <button type="button" onClick={() => go(`e/${job.experiment_id}`)}>
                 See results
               </button>
             </div>

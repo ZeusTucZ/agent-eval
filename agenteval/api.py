@@ -37,7 +37,21 @@ from agenteval import config, storage
 from agenteval.cost import PRICES, total_cost
 from agenteval.models import Experiment, Score, Trial
 from agenteval.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, EMBEDDINGS, MAX_TOP_K
-from agenteval.report import latency_percentiles, mean_score, retrieval_diagnosis
+from agenteval.calibrate import agreement, sample_trials
+from agenteval.calibrate import verdict as verdict_reading
+from agenteval.compare import check_comparable, compare_experiments
+from agenteval.compare import load as load_experiment_data
+from agenteval.environment import describe as describe_environment
+from agenteval.judge import RUBRICS, sources_of
+from agenteval.models import EvaluationCase
+from agenteval.report import (
+    latency_percentiles,
+    mean_score,
+    other_scores,
+    pass_rate_by_category,
+    retrieval_diagnosis,
+)
+from agenteval.sample_data import dataset_by_name
 from agenteval.scorers import SCORER_NAMES, score_trials
 
 app = FastAPI(title="agent-eval API", version="0.1.0")
@@ -103,7 +117,7 @@ async def limit_requests(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.cors_origins(),
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["X-API-Token", "Content-Type"],
 )
 
@@ -131,7 +145,10 @@ Conn = Annotated[sqlite3.Connection, Depends(get_conn)]
 # ---------------------------------------------------------------------------
 
 def require_token(x_api_token: str | None = Header(default=None)) -> None:
-    """Fail closed: with no API_TOKEN configured, every POST is refused."""
+    """Fail closed: with no API_TOKEN configured, every change is refused. In read-only mode
+    (a public demo) changes are refused whatever the token."""
+    if config.read_only():
+        raise HTTPException(status_code=403, detail="this server is read-only")
     expected = config.api_token()
     if not expected or x_api_token != expected:
         raise HTTPException(status_code=401, detail="missing or invalid X-API-Token")
@@ -158,7 +175,23 @@ def _mean(scores: list[Score], scorer: str) -> float | None:
     return mean_score(found) if found else None
 
 
-def experiment_summary(experiment: Experiment, trials: list[Trial], scores: list[Score]) -> dict:
+# Datasets rebuilt from an experiment's stored name, for questions and categories. Cached: a
+# built-in dataset or a sample of one is the same every time it is rebuilt.
+_datasets: dict[str, list[EvaluationCase] | None] = {}
+
+
+def _cases_for(experiment: Experiment) -> list[EvaluationCase] | None:
+    name = experiment.dataset_name
+    if name not in _datasets:
+        try:
+            _datasets[name] = dataset_by_name(name)
+        except (ValueError, OSError):
+            _datasets[name] = None  # e.g. a .jsonl file that isn't on this server
+    return _datasets[name]
+
+
+def experiment_summary(experiment: Experiment, trials: list[Trial], scores: list[Score],
+                       cases: list[EvaluationCase] | None = None) -> dict:
     exact_match = [score for score in scores if score.scorer == "exact_match"]
     successes = sum(score.value == 1.0 for score in exact_match)
     cost = total_cost(trials, experiment.prices)
@@ -174,7 +207,15 @@ def experiment_summary(experiment: Experiment, trials: list[Trial], scores: list
         "attempts": experiment.attempts,
         "created_at": experiment.created_at.isoformat(),
         "trial_count": len(trials),
-        "pass_rate": mean_score(exact_match),
+        "pass_rate": mean_score(exact_match) if exact_match else None,
+        "status": experiment.status,
+        "planned_trials": experiment.planned_trials,
+        "environment": describe_environment(experiment.environment),
+        "by_category": {
+            name: {"pass_rate": rate, "trials": count}
+            for name, (rate, count) in (pass_rate_by_category(trials, scores, cases) if cases else {}).items()
+        },
+        "other_scores": {name: {"mean": mean, "trials": count} for name, (mean, count) in other_scores(scores).items()},
         "latency_ms": {"p50": latency["p50"], "p95": latency["p95"]},
         "latency_working_ms": {"p50": working["p50"], "p95": working["p95"]},
         "cost": cost,
@@ -236,10 +277,12 @@ def _summary(conn: sqlite3.Connection, experiment_id: int) -> dict:
     if cached is not None and cached[0] == fingerprint:
         return cached[1]
 
+    experiment = _load_or_404(conn, experiment_id)
     summary = experiment_summary(
-        _load_or_404(conn, experiment_id),
+        experiment,
         storage.load_trials(conn, experiment_id),
         storage.load_scores(conn, experiment_id),
+        _cases_for(experiment),
     )
     with _summaries_lock:
         _summaries[key] = (fingerprint, summary)
@@ -266,7 +309,8 @@ def get_experiment(experiment_id: int, conn: Conn) -> dict:
 
 @app.get("/api/experiments/{experiment_id}/trials")
 def list_trials(experiment_id: int, conn: Conn) -> dict:
-    _load_or_404(conn, experiment_id)
+    experiment = _load_or_404(conn, experiment_id)
+    cases = {case.id: case for case in _cases_for(experiment) or []}
     trials = storage.load_trials(conn, experiment_id)
     scores = storage.load_scores(conn, experiment_id)
     scores_by_trial: dict[int, list[dict]] = {}
@@ -279,7 +323,10 @@ def list_trials(experiment_id: int, conn: Conn) -> dict:
     return {
         "experiment_id": experiment_id,
         "trials": [
-            {**trial.model_dump(), "scores": scores_by_trial.get(trial.id, [])}
+            {**trial.model_dump(), "scores": scores_by_trial.get(trial.id, []),
+             # The question it answered, so a failure can be read without the dataset file.
+             "case": (cases[trial.case_id].model_dump(include={"input", "expected_output", "category"})
+                      if trial.case_id in cases else None)}
             for trial in trials
         ],
     }
@@ -486,4 +533,162 @@ def rescore_experiment(
         ) from None
     # Only the built-in scorers' scores are replaced; an LLM judge's are kept.
     storage.replace_scores(conn, experiment_id, score_trials(dataset, trials), SCORER_NAMES)
-    return experiment_summary(experiment, trials, storage.load_scores(conn, experiment_id))
+    return experiment_summary(experiment, trials, storage.load_scores(conn, experiment_id), dataset)
+
+
+# ---------------------------------------------------------------------------
+# Managing experiments: rename and delete need the token.
+# ---------------------------------------------------------------------------
+
+class RenameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+@app.patch("/api/experiments/{experiment_id}")
+def rename_experiment(experiment_id: int, body: RenameRequest, conn: Conn,
+                      _token: None = Depends(require_token)) -> dict:
+    try:
+        storage.rename_experiment(conn, experiment_id, body.name)
+    except LookupError:
+        raise HTTPException(status_code=404, detail=f"no experiment with id {experiment_id}") from None
+    _forget_summary(experiment_id)
+    return _summary(conn, experiment_id)
+
+
+@app.delete("/api/experiments/{experiment_id}", status_code=204)
+def delete_experiment(experiment_id: int, conn: Conn, _token: None = Depends(require_token)) -> None:
+    try:
+        storage.delete_experiment(conn, experiment_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail=f"no experiment with id {experiment_id}") from None
+    _forget_summary(experiment_id)
+
+
+def _forget_summary(experiment_id: int) -> None:
+    with _summaries_lock:
+        _summaries.pop((config.database_path(), experiment_id), None)
+
+
+# ---------------------------------------------------------------------------
+# Comparing two experiments: the same paired test as `agenteval compare`.
+# ---------------------------------------------------------------------------
+
+def _change(change) -> dict:
+    return {"case_id": change.case.id, "input": change.case.input, "category": change.case.category,
+            "expected": change.case.expected_output, "before": change.a_output, "after": change.b_output,
+            "before_rate": change.a_rate, "after_rate": change.b_rate}
+
+
+def _interval(metric) -> dict:
+    return {"before": metric.a, "after": metric.b, "change": metric.change.mean,
+            "low": metric.change.low, "high": metric.change.high}
+
+
+@app.get("/api/compare")
+def compare(a: int, b: int, conn: Conn) -> dict:
+    """Is experiment b better than experiment a?"""
+    try:
+        first, second = load_experiment_data(conn, a), load_experiment_data(conn, b)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from None
+    fairness = check_comparable(first, second)
+    base = {"a": a, "b": b, "errors": fairness.errors, "warnings": fairness.warnings, "changes": fairness.changes}
+    if fairness.errors:
+        return {**base, "verdict": None}
+    cases = _cases_for(first.experiment)
+    if cases is None:
+        return {**base, "errors": [f"the dataset {first.experiment.dataset_name} isn't available here"], "verdict": None}
+    result = compare_experiments(first, second, cases)
+    return {
+        **base,
+        "verdict": result.verdict,
+        "reason": result.reason,
+        "cases_compared": result.cases_compared,
+        "p_value": result.p_value,
+        "pass_rate": _interval(result.pass_rate),
+        "latency_ms": _interval(result.working_ms),
+        "cost": _interval(result.cost),
+        "categories": {name: {"before": before, "after": after, "cases": count}
+                       for name, (before, after, count) in result.categories.items()},
+        "improved": [_change(change) for change in result.improved],
+        "regressed": [_change(change) for change in result.regressed],
+        "safety_regressions": [_change(change) for change in result.safety_regressions],
+        "partly_changed": result.partly_changed,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Labelling answers to check an LLM judge (agenteval calibrate, in the browser).
+# ---------------------------------------------------------------------------
+
+@app.get("/api/rubrics")
+def list_rubrics() -> list[dict]:
+    return [{"name": r.name, "question": r.question, "uses_expected": r.uses_expected,
+             "uses_sources": r.uses_sources, "uses_answer": r.uses_answer} for r in RUBRICS.values()]
+
+
+@app.get("/api/experiments/{experiment_id}/labels")
+def get_labels(experiment_id: int, rubric: str, conn: Conn) -> dict:
+    """Your labels, the judge's scores, the next answers to label and, once there are both,
+    how far the judge agrees with you."""
+    experiment = _load_or_404(conn, experiment_id)
+    if rubric not in RUBRICS:
+        raise HTTPException(status_code=400, detail=f"unknown rubric {rubric!r}")
+    trials = storage.load_trials(conn, experiment_id)
+    labels = storage.load_labels(conn, experiment_id, rubric)
+    judge_scores = [s for s in storage.load_scores(conn, experiment_id) if s.scorer == f"judge_{rubric}"]
+    cases = {case.id: case for case in _cases_for(experiment) or []}
+
+    queue = [t for t in sample_trials(trials, RUBRICS[rubric], 50, seed=0) if t.id not in labels]
+    agreement_data = None
+    if labels and judge_scores:
+        try:
+            result = agreement(labels, judge_scores)
+        except ValueError:
+            result = None
+        if result is not None:
+            agreement_data = {"compared": result.compared, "agreement": result.agreement, "kappa": result.kappa,
+                              "reading": verdict_reading(result.kappa, result.compared),
+                              "human_pass_rate": result.human_pass_rate, "judge_pass_rate": result.judge_pass_rate}
+    return {
+        "rubric": rubric,
+        "labelled": len(labels),
+        "judged": len(judge_scores),
+        "agreement": agreement_data,
+        "next": [{
+            "trial_id": t.id,
+            "question": cases[t.case_id].input if t.case_id in cases else None,
+            "expected": cases[t.case_id].expected_output if t.case_id in cases else None,
+            "sources": sources_of(t),
+            "answer": t.output,
+        } for t in queue[:5]],
+    }
+
+
+class LabelRequest(BaseModel):
+    trial_id: int
+    rubric: str
+    passed: bool
+
+
+@app.post("/api/experiments/{experiment_id}/labels")
+def add_label(experiment_id: int, body: LabelRequest, conn: Conn, _token: None = Depends(require_token)) -> dict:
+    _load_or_404(conn, experiment_id)
+    if body.rubric not in RUBRICS:
+        raise HTTPException(status_code=400, detail=f"unknown rubric {body.rubric!r}")
+    if not any(t.id == body.trial_id for t in storage.load_trials(conn, experiment_id)):
+        raise HTTPException(status_code=404, detail=f"no trial {body.trial_id} in experiment {experiment_id}")
+    storage.save_label(conn, experiment_id, body.trial_id, body.rubric, body.passed)
+    return {"saved": True}
+
+
+# ---------------------------------------------------------------------------
+# The dashboard itself, when built into the package (agenteval ui) or pointed at with
+# AGENTEVAL_STATIC_DIR. Mounted last, so it never shadows an API route.
+# ---------------------------------------------------------------------------
+
+_static = config.static_dir()
+if _static is not None:
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=_static, html=True), name="dashboard")
