@@ -40,6 +40,9 @@ def _real_agent_config(agent, provider: str, args) -> AgentConfig:
         "retry_policy": asdict(agent.retry_policy),
         "requests_per_minute": agent.requests_per_minute,
     }
+    # Only when set, so configs from before the token limit keep their versions.
+    if agent.tokens_per_minute is not None:
+        params["tokens_per_minute"] = agent.tokens_per_minute
     # Only for rag, so the other datasets' configs keep the versions their saved runs have.
     if args.dataset == "rag":
         params["retrieval"] = retrieval_config(args.top_k, args.embedding)
@@ -70,6 +73,7 @@ def build_gemini(args) -> tuple[Agent, AgentConfig]:
         max_steps=args.max_steps,
         temperature=args.temperature,
         requests_per_minute=args.rpm or None,
+        tokens_per_minute=args.tpm,
     )
     return agent, _real_agent_config(agent, "gemini", args)
 
@@ -85,6 +89,7 @@ def build_groq(args) -> tuple[Agent, AgentConfig]:
         max_steps=args.max_steps,
         temperature=args.temperature,
         requests_per_minute=args.rpm or None,
+        tokens_per_minute=args.tpm,
     )
     return agent, _real_agent_config(agent, "groq", args)
 
@@ -130,6 +135,9 @@ def main() -> None:
     real.add_argument("--prompt-file", help="file holding the system prompt; default: the built-in prompt")
     real.add_argument("--rpm", type=int,
                       help="requests per minute to stay under; default 8 gemini, 25 groq; check your quota; 0 = no limit")
+
+    real.add_argument("--tpm", type=int,
+                      help="tokens per minute to stay under, e.g. your Groq model's TPM limit; default: no limit")
 
     rag = parser.add_argument_group("rag dataset (needs: pip install -e \".[rag]\")")
     rag.add_argument("--top-k", type=int, default=DEFAULT_TOP_K, choices=range(1, MAX_TOP_K + 1), metavar="K",

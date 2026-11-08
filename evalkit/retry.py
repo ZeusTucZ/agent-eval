@@ -38,37 +38,68 @@ class RetryPolicy:
         return delay
 
 class RateLimiter:
-    """Allows at most `requests_per_minute` calls in any 60-second window.
+    """Spaces requests evenly to stay under `requests_per_minute`, and optionally under
+    `tokens_per_minute` too.
 
     Retries react to 429s after they happen; this avoids most of them by never
     sending faster than the quota. Shared by every trial using the same agent.
+
+    Requests go out one every 60 / requests_per_minute seconds rather than all at
+    once: an earlier version allowed the whole minute's quota in a burst and then
+    waited, which put most of a run's p95 latency in the limiter itself.
+
+    Providers also cap tokens per minute, and a request's tokens are only known once
+    it returns. So each finished call reports its tokens with `record`, and a request
+    waits while the tokens of the last 60 s plus a typical request's would pass the cap.
     """
 
     def __init__(
         self,
-        requests_per_minute: int,
+        requests_per_minute: int | None,
+        tokens_per_minute: int | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ):
         self.requests_per_minute = requests_per_minute
+        self.tokens_per_minute = tokens_per_minute
+        self.interval = 60 / requests_per_minute if requests_per_minute else 0.0  # None: no request cap
         self.clock = clock
         self.sleep = sleep
-        self.sent: deque[float] = deque()  # when each request in the current window was sent
+        self.next_send: float | None = None  # the earliest the next request may go
+        self.used: deque[tuple[float, int]] = deque()  # (when, tokens) for calls in the last 60 s
+        self.recent: deque[int] = deque(maxlen=20)  # tokens of the latest calls, to estimate the next
         self.lock = asyncio.Lock()
+
+    def expected_tokens(self) -> float:
+        """What the next request will likely use: the mean of recent ones, 0 before any."""
+        return sum(self.recent) / len(self.recent) if self.recent else 0.0
+
+    def record(self, tokens: int) -> None:
+        """Report a finished call's tokens (input and output)."""
+        self.used.append((self.clock(), tokens))
+        self.recent.append(tokens)
 
     async def acquire(self) -> None:
         async with self.lock:
-            while True:
+            now = self.clock()
+            if self.next_send is not None and now < self.next_send:
+                await self.sleep(self.next_send - now)
                 now = self.clock()
-                while self.sent and now - self.sent[0] >= 60:
-                    self.sent.popleft()
 
-                if len(self.sent) < self.requests_per_minute:
-                    self.sent.append(now)
-                    return
+            if self.tokens_per_minute is not None:
+                while True:
+                    while self.used and now - self.used[0][0] >= 60:
+                        self.used.popleft()
+                    in_window = sum(tokens for _, tokens in self.used)
+                    # An empty window always lets one through, or a request bigger than
+                    # the whole budget would wait forever.
+                    if not self.used or in_window + self.expected_tokens() <= self.tokens_per_minute:
+                        break
+                    # Wait until the oldest call leaves the window.
+                    await self.sleep(60 - (now - self.used[0][0]))
+                    now = self.clock()
 
-                # Wait until the oldest request leaves the window.
-                await self.sleep(60 - (now - self.sent[0]))
+            self.next_send = now + self.interval
 
 async def call_llm_with_retries(
     tracer: Tracer,
@@ -100,6 +131,8 @@ async def call_llm_with_retries(
                 except Exception as error:
                     span.error_type = classify(error)
                     raise
+            if rate_limiter is not None:
+                rate_limiter.record(span.input_tokens + span.output_tokens)
             return result
         except Exception as error:
             if classify(error) not in policy.retry_on or retry == policy.max_retries:

@@ -53,6 +53,7 @@ class OpenAICompatibleAgent:
         temperature: float = 0.0,
         retry_policy: RetryPolicy | None = None,
         requests_per_minute: int | None = None,
+        tokens_per_minute: int | None = None,  # the provider's token cap, if it has one
         client: Any = None,  # tests pass a fake client
     ):
         self.model = model
@@ -63,7 +64,11 @@ class OpenAICompatibleAgent:
         self.temperature = temperature
         self.retry_policy = retry_policy or RetryPolicy(max_retries=5, base_delay_s=2.0, max_delay_s=60.0)
         self.requests_per_minute = requests_per_minute
-        self.rate_limiter = RateLimiter(requests_per_minute) if requests_per_minute else None
+        self.tokens_per_minute = tokens_per_minute
+        self.rate_limiter = (
+            RateLimiter(requests_per_minute, tokens_per_minute)
+            if requests_per_minute or tokens_per_minute else None
+        )
         self.quota_exhausted = False  # circuit breaker, as in GeminiAgent
         self.client = client or self._build_client()
 
