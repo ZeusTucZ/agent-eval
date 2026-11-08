@@ -18,11 +18,13 @@ from evalkit.rag import (
     rag_tools,
     retrieval_config,
 )
+from evalkit.models import EvaluationCase, Score, Span, Trial
+from evalkit.report import retrieval_diagnosis
 from evalkit.retry import RetryPolicy
 from evalkit.run import _real_agent_config
 from evalkit.runner import run_experiment
 from evalkit.sample_data import DATASETS_DIR, dataset_by_name, rag_cases
-from evalkit.scorers import score_trials
+from evalkit.scorers import retrieval_recall, retrieved_doc_ids, score_trials
 from evalkit.tools import ToolRegistry
 from evalkit.tracer import Tracer
 from scripts.build_rag_dataset import cases as build_cases
@@ -178,6 +180,8 @@ def test_a_search_then_answer_is_scored_as_grounded(registry):
     assert scores["exact_match"] == 1.0
     assert scores["tool_selection"] == 1.0
     assert scores["tool_faithfulness"] == 1.0  # "6" is in the retrieved calibration guide
+    assert scores["retrieval_recall"] == 1.0
+    assert retrieval_diagnosis(score_trials([case], trials)) == {"correct": 1}
 
 def test_an_answer_from_memory_is_not_grounded(registry):
     from test_openai_agent import NO_WAIT, fake_client, final_answer, tool_call
@@ -192,3 +196,52 @@ def test_an_answer_from_memory_is_not_grounded(registry):
 
     assert scores["exact_match"] == 0.0
     assert scores["tool_faithfulness"] == 0.0
+    assert scores["retrieval_recall"] == 0.0
+    assert retrieval_diagnosis(score_trials([case], trials)) == {"retrieval_failure": 1}
+
+# --- Retrieval scoring ---
+
+def _search_span(doc_ids: list[str], status: str = "success", output: str | None = None) -> Span:
+    results = [{"doc_id": doc_id, "title": "", "date": "", "text": ""} for doc_id in doc_ids]
+    return Span(trial_id=1, kind="tool", name="search_docs", start=0, end=0, status=status,
+                output=output if output is not None else json.dumps(results))
+
+def _llm_span() -> Span:
+    return Span(trial_id=1, kind="llm", name="model", start=0, end=0, status="success")
+
+def _trial(*spans: Span, output: str = "x") -> Trial:
+    return Trial(id=1, case_id=1, attempt=1, output=output, spans=[_llm_span(), *spans])
+
+two_docs = EvaluationCase(id=1, input="q", expected_output="a", relevant_docs=["prod-011", "prod-012"])
+
+def test_recall_is_the_share_of_relevant_documents_any_search_found():
+    assert retrieval_recall(two_docs, _trial(_search_span(["prod-011", "org-001"]))).value == 0.5
+    # Found across two searches still counts as found.
+    assert retrieval_recall(two_docs, _trial(_search_span(["prod-011"]), _search_span(["prod-012"]))).value == 1.0
+
+def test_not_searching_scores_zero_but_a_model_that_never_answered_is_not_judged():
+    assert retrieval_recall(two_docs, _trial()).value == 0.0
+    never_answered = Trial(id=1, case_id=1, attempt=1, spans=[
+        Span(trial_id=1, kind="llm", name="model", start=0, end=0, status="error", error_type="rate_limit"),
+    ])
+    assert retrieval_recall(two_docs, never_answered) is None
+
+def test_recall_is_not_judged_without_relevant_documents():
+    assert retrieval_recall(two_docs.model_copy(update={"relevant_docs": []}), _trial()) is None  # unanswerable
+    assert retrieval_recall(two_docs.model_copy(update={"relevant_docs": None}), _trial()) is None  # not rag
+
+def test_failed_or_unreadable_searches_find_nothing():
+    trial = _trial(_search_span(["prod-011"], status="error"), _search_span([], output='[{"doc_id": "prod-0'))
+    assert retrieved_doc_ids(trial) == set()
+
+def test_diagnosis_separates_retrieval_failures_from_answer_failures():
+    def scores(trial_id: int, recall: float, correct: bool) -> list[Score]:
+        return [Score(trial_id=trial_id, scorer="retrieval_recall", value=recall),
+                Score(trial_id=trial_id, scorer="exact_match", value=1.0 if correct else 0.0)]
+
+    all_scores = (scores(1, 1.0, True) + scores(2, 1.0, False) + scores(3, 0.5, False) + scores(4, 0.0, True)
+                  + [Score(trial_id=5, scorer="exact_match", value=1.0)])  # no retrieval score: left out
+
+    assert retrieval_diagnosis(all_scores) == {
+        "correct": 1, "answer_failure": 1, "retrieval_failure": 1, "unsupported_correct": 1,
+    }
