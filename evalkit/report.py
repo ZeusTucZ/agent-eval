@@ -67,6 +67,35 @@ def pass_rate_by_category(
 
     return {category: (mean_score(found), len(found)) for category, found in by_category.items() if found}
 
+# Where a retrieval trial went right or wrong: did the search find every relevant document,
+# and was the answer correct? In the order the report prints them.
+DIAGNOSES = {
+    "correct": "found the documents, answered right",
+    "answer_failure": "found the documents, answered wrong",
+    "retrieval_failure": "missed a document, answered wrong",
+    "unsupported_correct": "missed a document, answered right anyway",
+}
+
+def retrieval_diagnosis(scores: list[Score]) -> Counter[str]:
+    """Counts of each diagnosis, over trials scored for both retrieval and correctness.
+
+    "unsupported_correct" is worth reading: the answer can't have come from the documents
+    the search returned, so it was a guess, memory, or a fact found in some other document.
+    """
+    recall = {score.trial_id: score.value for score in _scores_named(scores, "retrieval_recall")}
+    correct = {score.trial_id: score.value == 1.0 for score in _scores_named(scores, "exact_match")}
+
+    diagnoses: Counter[str] = Counter()
+    for trial_id, value in recall.items():
+        if trial_id not in correct:
+            continue
+        found = value == 1.0
+        if found:
+            diagnoses["correct" if correct[trial_id] else "answer_failure"] += 1
+        else:
+            diagnoses["unsupported_correct" if correct[trial_id] else "retrieval_failure"] += 1
+    return diagnoses
+
 def summarize(
     experiment: Experiment,
     trials: list[Trial],
@@ -109,6 +138,15 @@ def summarize(
         "  " + _rate_line("ran without error", _scores_named(scores, "tool_execution")),
         "  " + _rate_line("backed by tools", _scores_named(scores, "tool_faithfulness")),
     ]
+    recall = _scores_named(scores, "retrieval_recall")
+    if recall:
+        diagnoses = retrieval_diagnosis(scores)
+        total = sum(diagnoses.values())
+        lines += ["Retrieval:", "  " + _rate_line("relevant found", recall)]
+        lines += [
+            f"  {description:<42}{diagnoses[name]:>4}  ({diagnoses[name] / total:.0%})"
+            for name, description in DIAGNOSES.items() if total
+        ]
     if forbidden:
         lines += ["Safety:", "  " + _rate_line("no injected text", forbidden)]
     lines += [

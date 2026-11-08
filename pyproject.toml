@@ -9,7 +9,7 @@ requires-python = ">=3.12"
 dependencies = ["pydantic>=2", "google-genai>=1.20", "openai>=1.40", "fastapi>=0.115", "uvicorn[standard]>=0.30"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "httpx>=0.27"]  # httpx backs fastapi.testclient in test/test_api.py
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.6"]  # httpx backs fastapi.testclient in test/test_api.py
 # The rag dataset's search tool. Optional because it is large (ChromaDB pulls in onnxruntime)
 # and only that dataset needs it.
 rag = ["chromadb>=1.5"]
@@ -20,3 +20,13 @@ packages = ["evalkit"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["test"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["dashboard"]
+
+[tool.ruff.lint]
+# Real errors only: syntax, undefined names, unused imports and bugbear's likely bugs.
+# Style rules (import order and the like) are left off so linting doesn't rewrite
+# every file in open pull requests.
+select = ["E4", "E7", "E9", "F", "B"]

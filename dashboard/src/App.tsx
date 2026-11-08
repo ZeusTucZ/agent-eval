@@ -9,48 +9,58 @@ type View = { page: "list" } | { page: "detail"; id: number } | { page: "run" };
 
 export default function App() {
   const [view, setView] = useState<View>({ page: "list" });
+  // Kept in memory only: never written to storage, gone when the tab closes.
   const [token, setToken] = useState("");
-  const [health, setHealth] = useState<string | null>(null);
+  const [online, setOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
     api
       .health()
-      .then((res) => setHealth(res.status))
-      .catch(() => setHealth("unreachable"));
+      .then((res) => setOnline(res.status === "ok"))
+      .catch(() => setOnline(false));
   }, []);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [view]);
+
+  const statusText = online === null ? "Connecting…" : online ? "API online" : "API offline";
 
   return (
     <div className="app">
-      <header className="app-header">
-        <div className="brand-row">
-          <div className="brand-mark" aria-hidden="true">
-            æ
-          </div>
-          <div className="brand-text">
-            <p className="eyebrow">LLM agent evaluation</p>
-            <h1>agent-eval</h1>
-            <p className="subtitle">
-              Evaluation dashboard · API: {apiBaseUrl} · status:{" "}
-              <span
-                className={`status-badge ${
-                  health === "ok" ? "status-ok" : health ? "status-bad" : ""
-                }`}
-              >
-                {health ?? "checking…"}
-              </span>
-            </p>
-          </div>
-        </div>
-        <nav aria-label="Dashboard sections">
-          <button type="button" onClick={() => setView({ page: "list" })} disabled={view.page === "list"}>
+      <header className="topbar">
+        <span className="wordmark">agent-eval</span>
+        <nav aria-label="Main">
+          <button
+            type="button"
+            className="ghost"
+            aria-current={view.page !== "run" ? "page" : undefined}
+            onClick={() => setView({ page: "list" })}
+          >
             Experiments
-          </button>{" "}
-          <button type="button" onClick={() => setView({ page: "run" })} disabled={view.page === "run"}>
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            aria-current={view.page === "run" ? "page" : undefined}
+            onClick={() => setView({ page: "run" })}
+          >
             New run
           </button>
         </nav>
+        <span className="status" title={apiBaseUrl}>
+          <span className={`dot ${online === null ? "" : online ? "ok" : "bad"}`} aria-hidden="true" />
+          <span className="status-text">{statusText}</span>
+        </span>
       </header>
+
       <main>
+        {online === false ? (
+          <p className="notice info" style={{ marginBottom: 24 }}>
+            The API isn&apos;t answering. On Render&apos;s free tier it sleeps when idle and takes
+            about a minute to wake up, so try again shortly.
+          </p>
+        ) : null}
         {view.page === "list" ? (
           <ExperimentsList
             onOpen={(id) => setView({ page: "detail", id })}
@@ -71,14 +81,8 @@ export default function App() {
           />
         )}
       </main>
-      <footer>
-        <p>
-          agent-eval dashboard — every number shown comes from the API; rates with no
-          scores show “n/a”. The API token is kept only in this browser tab and is never
-          saved in the repo.
-        </p>
-        <p>FastAPI + React · deployed on Render</p>
-      </footer>
+
+      <footer>agent-eval · every number here comes from the API</footer>
     </div>
   );
 }

@@ -9,7 +9,7 @@ from evalkit.report import pass_rate_by_category
 from evalkit.runner import run_experiment
 from evalkit.sample_data import DATASETS_DIR, hard_cases, tools_for_dataset
 from evalkit.scorers import avoids_forbidden_text, exact_match, score_trials, tool_execution, tool_selection
-from evalkit.tools import HARD_TOOLS, ToolRegistry, convert_currency
+from evalkit.tools import HARD_TOOLS, ToolArgumentError, ToolRegistry, convert_currency
 from evalkit.tracer import Tracer
 from scripts.build_hard_dataset import build, to_jsonl
 
@@ -43,7 +43,8 @@ def test_ids_are_unique_and_every_required_tool_exists():
     ("convert_currency", {"amount": 100, "from_currency": "USD", "to_currency": "doubloons"}),
 ])
 def test_tool_error_cases_really_have_no_answer(tool, arguments):
-    with pytest.raises(Exception):
+    # The errors these tools raise for a missing record, a bad currency or division by zero.
+    with pytest.raises((LookupError, ValueError, ZeroDivisionError)):
         registry.call(tool, arguments, Tracer(1))
 
 def test_planted_errors_and_injections_are_in_the_reference_data():
@@ -144,7 +145,7 @@ def test_expected_tool_errors_are_not_held_against_the_agent():
 
 def test_bad_arguments_are_recorded_as_sent():
     tracer = Tracer(1)
-    with pytest.raises(Exception):
+    with pytest.raises(ToolArgumentError):
         registry.call("calculator", '{"a": 1, "operator": "^"', tracer)  # malformed JSON
     assert tracer.spans[0].input == '{"a": 1, "operator": "^"'
     assert tracer.spans[0].output is None

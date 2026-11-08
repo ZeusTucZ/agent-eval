@@ -1,12 +1,14 @@
+// One experiment, ordered by what a reader wants to know: how good was it, why did
+// trials fail, which checks failed, and then the trials themselves. Identifiers, the
+// latency breakdown and re-scoring sit in "Details" at the end.
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { ExperimentSummary, Trial } from "../types";
-import { ms, pct, usd } from "../format";
-import MetricCard from "../components/MetricCard";
-import LatencyChart from "../components/LatencyChart";
-import CostTable from "../components/CostTable";
+import { humanize, ms, pct, rateTone, relativeTime, usd } from "../format";
+import Stat from "../components/Stat";
+import BarRow from "../components/BarRow";
+import FailureBreakdown, { wrongAnswers } from "../components/FailureBreakdown";
 import TrialsTable from "../components/TrialsTable";
-import FailureBreakdown from "../components/FailureBreakdown";
 
 interface Props {
   id: number;
@@ -15,128 +17,230 @@ interface Props {
   onBack: () => void;
 }
 
+// Plain-language names for the checks, in the order they happen in a trial.
+const CHECKS: { key: keyof ExperimentSummary["tool_rates"]; label: string }[] = [
+  { key: "right_tool", label: "Used the right tool" },
+  { key: "valid_arguments", label: "Valid tool arguments" },
+  { key: "ran_without_error", label: "Tool ran without error" },
+  { key: "relevant_found", label: "Search found the documents" },
+  { key: "backed_by_tools", label: "Answer backed by tool results" },
+  { key: "no_injected_text", label: "Ignored injected instructions" },
+];
+
+const DIAGNOSES: { key: string; label: string; tone?: "bad" }[] = [
+  { key: "correct", label: "Found the documents, answered right" },
+  { key: "answer_failure", label: "Found the documents, answered wrong", tone: "bad" },
+  { key: "retrieval_failure", label: "Missed a document, answered wrong", tone: "bad" },
+  { key: "unsupported_correct", label: "Missed a document, right anyway" },
+];
+
 export default function ExperimentDetail({ id, token, onTokenChange, onBack }: Props) {
   const [experiment, setExperiment] = useState<ExperimentSummary | null>(null);
   const [trials, setTrials] = useState<Trial[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [rescoreState, setRescoreState] = useState<string | null>(null);
+  const [rescore, setRescore] = useState<{ kind: "info" | "success" | "error"; text: string } | null>(null);
 
-  const load = () => {
+  useEffect(() => {
     setError(null);
-    api
-      .getExperiment(id)
-      .then(setExperiment)
+    Promise.all([api.getExperiment(id), api.listTrials(id)])
+      .then(([summary, list]) => {
+        setExperiment(summary);
+        setTrials(list.trials);
+      })
       .catch((err: Error) => setError(err.message));
-    api
-      .listTrials(id)
-      .then((res) => setTrials(res.trials))
-      .catch((err: Error) => setError(err.message));
-  };
-
-  useEffect(load, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [id]);
 
   async function handleRescore() {
-    if (!token) {
-      setRescoreState("Enter your API token below first — re-scoring requires it.");
-      return;
-    }
-    setRescoreState("Re-scoring…");
+    setRescore({ kind: "info", text: "Re-scoring…" });
     try {
-      const updated = await api.rescoreExperiment(id, token);
-      setExperiment(updated);
-      setRescoreState("Re-scored. Scores were recomputed without calling the model again.");
+      setExperiment(await api.rescoreExperiment(id, token));
+      setTrials((await api.listTrials(id)).trials);
+      setRescore({ kind: "success", text: "Scores recomputed from the saved trials." });
     } catch (err) {
-      setRescoreState(`Re-score failed: ${err instanceof Error ? err.message : String(err)}`);
+      setRescore({ kind: "error", text: `Re-scoring failed: ${err instanceof Error ? err.message : String(err)}` });
     }
   }
+
+  const back = (
+    <button type="button" className="link" onClick={onBack} style={{ marginBottom: 20 }}>
+      ← All experiments
+    </button>
+  );
 
   if (error) {
     return (
-      <div>
-        <p className="error">Could not load experiment {id}: {error}</p>
-        <button type="button" onClick={onBack}>← Back to experiments</button>
-      </div>
+      <>
+        {back}
+        <p className="notice error">Couldn&apos;t load experiment {id}: {error}</p>
+      </>
     );
   }
-  if (!experiment || trials === null) return <p>Loading experiment…</p>;
+  if (!experiment || trials === null) return <p className="skeleton">Loading experiment…</p>;
 
-  const rates = experiment.tool_rates;
+  const total = experiment.trial_count;
+  const passedCount = Math.round(experiment.pass_rate * total);
+  const failureCount = Object.values(experiment.failures).reduce((n, c) => n + c, 0);
+  const notPassed = total - passedCount;
+  const topCause = Object.entries(experiment.failures).sort((a, b) => b[1] - a[1])[0];
+  const wrong = wrongAnswers(trials);
+  // A check that produced no scores doesn't apply to this dataset: leave it out rather than show n/a.
+  const checks = CHECKS.filter((check) => (experiment.tool_rates[check.key] ?? null) !== null);
+  const diagnosis = experiment.retrieval_diagnosis ?? {};
+  const diagnosed = Object.values(diagnosis).reduce((n, c) => n + c, 0);
 
   return (
-    <div>
-      <button type="button" onClick={onBack}>← Back to experiments</button>
+    <>
+      {back}
       <div className="page-head">
         <div>
-          <p className="section-label">Experiment {experiment.id}</p>
-          <h2>{experiment.name}</h2>
-          <p>
-            {experiment.model} · dataset {experiment.dataset_name}
-            {experiment.dataset_version ? ` (v ${experiment.dataset_version})` : ""} ·{" "}
-            {experiment.attempts} attempt{experiment.attempts === 1 ? "" : "s"} · config{" "}
-            {experiment.config_version} · {new Date(experiment.created_at).toLocaleString()}
+          <h1>{experiment.name}</h1>
+          <p className="meta">
+            {experiment.model} · {experiment.dataset_name} · {experiment.attempts} attempt
+            {experiment.attempts === 1 ? "" : "s"} per question ·{" "}
+            <span title={new Date(experiment.created_at).toLocaleString()}>{relativeTime(experiment.created_at)}</span>
           </p>
         </div>
-        <span className={`pill ${experiment.pass_rate >= 0.9 ? "pill-good" : experiment.pass_rate >= 0.7 ? "pill-warn" : "pill-bad"}`}>
-          Pass rate {pct(experiment.pass_rate)}
-        </span>
       </div>
 
-      <div className="metric-grid">
-        <MetricCard label="Pass rate" value={pct(experiment.pass_rate)} sub={`${experiment.trial_count} trials`} />
-        <MetricCard label="Total cost" value={usd(experiment.cost)} sub={`per success: ${usd(experiment.cost_per_success, 6)}`} />
-        <MetricCard label="Latency p50" value={ms(experiment.latency_ms.p50)} sub={`excl. waits: ${ms(experiment.latency_working_ms.p50)}`} />
-        <MetricCard label="Latency p95" value={ms(experiment.latency_ms.p95)} sub={`excl. waits: ${ms(experiment.latency_working_ms.p95)}`} />
-      </div>
-
-      <h3>Tool quality</h3>
-      <table className="data-table">
-        <tbody>
-          <tr><th scope="row">Right tool</th><td>{pct(rates.right_tool)}</td></tr>
-          <tr><th scope="row">Valid arguments</th><td>{pct(rates.valid_arguments)}</td></tr>
-          <tr><th scope="row">Ran without error</th><td>{pct(rates.ran_without_error)}</td></tr>
-          <tr><th scope="row">Backed by tools (tool faithfulness)</th><td>{pct(rates.backed_by_tools)}</td></tr>
-          <tr><th scope="row">No injected text</th><td>{pct(rates.no_injected_text)}</td></tr>
-        </tbody>
-      </table>
-
-      <h3>Latency</h3>
-      <LatencyChart
-        p50={experiment.latency_ms.p50}
-        p95={experiment.latency_ms.p95}
-        p50Working={experiment.latency_working_ms.p50}
-        p95Working={experiment.latency_working_ms.p95}
-      />
-      <p className="footnote">
-        “Excl. waits” leaves out time spent waiting on retries or the rate limiter
-        (latency_working_ms from the API).
-      </p>
-
-      <h3>Cost</h3>
-      <CostTable cost={experiment.cost} costPerSuccess={experiment.cost_per_success} trialCount={experiment.trial_count} />
-
-      <h3>Failures</h3>
-      <FailureBreakdown failures={experiment.failures} trialCount={experiment.trial_count} trials={trials} />
-
-      <h3>Trials</h3>
-      <TrialsTable trials={trials} />
-
-      <h3>Re-score</h3>
-      <p>
-        Re-scores the saved trials without calling the model again (no API cost). Requires
-        the API token.
-      </p>
-      <label>
-        API token{" "}
-        <input
-          type="password"
-          value={token}
-          onChange={(e) => onTokenChange(e.target.value)}
-          placeholder="X-API-Token value"
-          autoComplete="off"
+      <div className="stats">
+        <Stat
+          label="Pass rate"
+          value={pct(experiment.pass_rate)}
+          sub={`${passedCount} of ${total} trials`}
+          tone={rateTone(experiment.pass_rate)}
         />
-      </label>{" "}
-      <button type="button" onClick={handleRescore}>Re-score experiment</button>
-      {rescoreState ? <p>{rescoreState}</p> : null}
-    </div>
+        <Stat
+          label="Didn't pass"
+          value={String(notPassed)}
+          sub={
+            notPassed === 0
+              ? "none"
+              : wrong >= (topCause?.[1] ?? 0)
+                ? `mostly wrong answers`
+                : `mostly ${humanize(topCause[0]).toLowerCase()}`
+          }
+        />
+        <Stat
+          label="Typical latency"
+          value={ms(experiment.latency_ms.p50)}
+          sub={`slowest 5%: ${ms(experiment.latency_ms.p95)}`}
+        />
+        <Stat
+          label="Cost per correct answer"
+          value={usd(experiment.cost_per_success)}
+          sub={`${usd(experiment.cost)} in total`}
+        />
+      </div>
+
+      <section>
+        <h2>Why trials didn&apos;t pass</h2>
+        <p className="section-note">
+          Share of all {total} trials. A failure stopped the trial; a wrong answer finished with the wrong result.
+        </p>
+        <FailureBreakdown failures={experiment.failures} trials={trials} />
+      </section>
+
+      {diagnosed > 0 ? (
+        <section>
+          <h2>Search or answer?</h2>
+          <p className="section-note">
+            For questions answered from documents: was the problem finding them, or using them?
+          </p>
+          <div className="bars">
+            {DIAGNOSES.map((row) => (
+              <BarRow
+                key={row.key}
+                label={row.label}
+                share={(diagnosis[row.key] ?? 0) / diagnosed}
+                value={String(diagnosis[row.key] ?? 0)}
+                tone={row.tone ?? "accent"}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {checks.length > 0 ? (
+        <section>
+          <h2>Checks</h2>
+          <p className="section-note">Share of trials that passed each check that applies to this dataset.</p>
+          <div className="bars">
+            {checks.map((check) => {
+              const rate = experiment.tool_rates[check.key] ?? null;
+              return <BarRow key={check.key} label={check.label} share={rate} value={pct(rate, 0)} tone="accent" />;
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      <section>
+        <h2>Trials</h2>
+        <TrialsTable trials={trials} />
+      </section>
+
+      <section>
+        <details>
+          <summary>Details and re-scoring</summary>
+          <div style={{ display: "grid", gap: 28 }}>
+            <table>
+              <tbody>
+                <tr><td className="muted">Experiment</td><td className="mono">#{experiment.id}</td></tr>
+                <tr><td className="muted">Config version</td><td className="mono">{experiment.config_version}</td></tr>
+                <tr><td className="muted">Dataset version</td><td className="mono">{experiment.dataset_version ?? "n/a"}</td></tr>
+                <tr>
+                  <td className="muted">Latency p50 / p95</td>
+                  <td>{ms(experiment.latency_ms.p50)} / {ms(experiment.latency_ms.p95)}</td>
+                </tr>
+                <tr>
+                  <td className="muted">Excluding waits</td>
+                  <td>
+                    {ms(experiment.latency_working_ms.p50)} / {ms(experiment.latency_working_ms.p95)}{" "}
+                    <span className="muted">(time not spent on retries or the rate limiter)</span>
+                  </td>
+                </tr>
+                <tr><td className="muted">Failed trials</td><td>{failureCount}</td></tr>
+                <tr><td className="muted">Cost per trial</td><td>{usd(total ? experiment.cost / total : null)}</td></tr>
+              </tbody>
+            </table>
+
+            <form
+              className="form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleRescore();
+              }}
+            >
+              <div>
+                <h2>Re-score</h2>
+                <p className="meta">
+                  Runs the scorers again on the saved trials, for when a scorer has changed. The model isn&apos;t
+                  called, so it costs nothing.
+                </p>
+              </div>
+              <label>
+                API token
+                <input
+                  type="password"
+                  value={token}
+                  onChange={(e) => onTokenChange(e.target.value)}
+                  autoComplete="off"
+                  required
+                />
+              </label>
+              <div>
+                <button type="submit" disabled={!token || rescore?.text === "Re-scoring…"}>
+                  Re-score
+                </button>
+              </div>
+              {rescore ? (
+                <p className={`notice ${rescore.kind}`} role="status">
+                  {rescore.text}
+                </p>
+              ) : null}
+            </form>
+          </div>
+        </details>
+      </section>
+    </>
   );
 }

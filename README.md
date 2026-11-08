@@ -1,5 +1,7 @@
 # agent-eval
 
+[![tests](https://github.com/ZeusTucZ/agent-eval/actions/workflows/tests.yml/badge.svg)](https://github.com/ZeusTucZ/agent-eval/actions/workflows/tests.yml)
+
 A reliability and evaluation harness for LLM agents. It runs an agent over a dataset many times, traces every step, and measures what matters before you ship: **correctness, tool-call success, latency, cost, retries and failures**, with each failure labelled by its cause.
 
 It works with a deterministic **mock agent** (for testing the harness itself), **Gemini**, and any **OpenAI-compatible** provider such as **Groq** or a local **Ollama**.
@@ -42,7 +44,7 @@ curl http://127.0.0.1:8000/health
 
 ### How runs are protected
 
-All `GET` endpoints are public and read-only. `POST /api/runs` and `POST /api/experiments/{id}/rescore` require the `X-API-Token` header with the server's `API_TOKEN` value; without it, or with a wrong value, they return HTTP 401. The token lives only as an environment variable in Render, never in the repo, so a visitor cannot spend the Groq quota by launching runs.
+All `GET` endpoints are public and read-only. `POST /api/runs` and `POST /api/experiments/{id}/rescore` require the `X-API-Token` header with the server's `API_TOKEN` value; without it, or with a wrong value, they return HTTP 401. The token lives only as an environment variable in Render, never in the repo, so a visitor cannot spend the Groq quota by launching runs. Runs are bounded (at most 10 attempts and 1,000 arithmetic questions), at most three can wait at once, and each client may make 120 requests a minute (`REQUESTS_PER_CLIENT_PER_MINUTE`), so the public endpoints stay usable for everyone. The experiment list is paged (`?limit=` up to 100, `?offset=`).
 
 ## Why
 
@@ -80,10 +82,33 @@ flowchart LR
   2. `tool_arguments_valid`: did it name a real tool and pass valid arguments (validated with pydantic)?
   3. `tool_execution`: did the tool run without an error?
 - **Hallucination proxy:** `tool_faithfulness` checks that every number in an answer, or its text, appears in a tool result. It needs no expected answer and no LLM, so it could run on every response. On real runs, 87% of answers were backed by tools, against 4.6% for a prompt that told the agent not to use them. It measures faithfulness to sources, not truth: most flagged answers were right but worked out in the model's head, so treat a flag as "unverified", not "wrong".
+- **Retrieval:** `retrieval_recall` is the share of a case's relevant documents that the agent's searches brought back, read from the trace. The report crosses it with `exact_match` to say where each RAG trial went wrong: the search missed a document (a retrieval problem), or found them all and the model still answered wrong (a generation problem). A right answer without the documents is listed apart, since it can't have come from the search.
 - **Latency:** p50/p95, both **total** (what a user waits) and **excluding waits** (time inside requests).
 - **Cost:** tokens from the provider's response × a per-model price table; total and **per successful answer**.
 - **Retries:** counted by reason (`rate_limit`, `server_error`, `connection_error`).
 - **Failures, labelled by cause:** `tool_error`, `llm_error`, `timeout` (a step hung), `timeout_after_rate_limit` (ran out of time waiting to retry), `quota_exhausted`, `max_steps_exceeded`, and three model failures: `output_truncated` (hit the output-token limit before answering), `empty_output` (finished without saying anything) and `invalid_model_output` (e.g. a malformed tool call).
+
+## LLM judge, checked against your own labels
+
+Some answers can't be scored by matching strings: "3 years" answers "How long is the warranty?" when the expected answer is "3", and a sentence can name only facts from its sources and still draw a conclusion they don't support. `evalkit.judge` asks a second model, `llama-3.3-70b-versatile` on Groq by default, for a pass or fail verdict on a saved experiment's answers, under one of two rubrics:
+
+- `groundedness`: is every claim in the answer supported by the tool results the agent received?
+- `correctness`: does the answer say the same thing as the expected answer, whatever the wording?
+
+```bash
+.venv\Scripts\python -m evalkit.judge 12 --rubric groundedness
+```
+
+A judge is a model too, so its scores are only as good as its agreement with a person. `evalkit.calibrate` measures that agreement. You label a fixed random sample yourself, seeing the same material as the judge and never its verdict. The labels are saved as you go, so labelling can stop and resume. The command then reports how often you and the judge agree, Cohen's kappa (agreement beyond chance, which a judge that passes everything can't fake), both pass rates, and every disagreement with the judge's reason:
+
+```bash
+.venv\Scripts\python -m evalkit.calibrate label 12 --rubric groundedness --sample 50
+```
+```bash
+.venv\Scripts\python -m evalkit.calibrate agree 12 --rubric groundedness
+```
+
+Judge scores are stored as `judge_<rubric>` and tagged with a hash of the judge's model and prompt, since agreement measured on one judge says nothing about another. `evalkit.rescore` replaces only the built-in scorers' scores, so it never throws away a judge's paid-for scores. The judge's prompt treats the material as data, which matters because the `rag` corpus carries prompt injections and they reach the judge as sources.
 
 ## Reliability features
 
@@ -232,7 +257,7 @@ def test_tool_error_rate_matches_injected():
     assert 0.07 < measured < 0.13
 ```
 
-The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 243 tests run in about 20 seconds and run in CI on every pull request.
+The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 303 tests run in about 20 seconds and run in CI on every pull request.
 
 ## Comparing versions
 
@@ -291,7 +316,7 @@ Use an odd number of attempts, and more cases to catch smaller drops. The mock's
 
 ## Regression gate
 
-`evalkit.gate` turns a comparison into a decision, and [`.github/workflows/agent-eval.yml`](.github/workflows/agent-eval.yml) runs it on pull requests that change the agent, prompts or dataset. It runs the change, compares it with a stored baseline from `main`, then posts the result as a PR comment.
+`evalkit.gate` turns a comparison into a decision, and [`.github/workflows/agent-eval.yml`](.github/workflows/agent-eval.yml) runs it on pull requests labelled `run-agent-eval` that change the agent, its prompts or the `hard` dataset. It runs the change, compares it with a stored baseline from `main`, then posts the result as a PR comment.
 
 | Result | Decision | Exit code |
 |---|---|---|
@@ -308,11 +333,14 @@ Use an odd number of attempts, and more cases to catch smaller drops. The mock's
 
 A full run uses about 140,000 tokens, too many to run `main` again on every PR within a free daily quota. So [`agent-eval-baseline.yml`](.github/workflows/agent-eval-baseline.yml) runs `main` when the agent changes and once a week, and stores the results. A run damaged by rate limits never replaces the last good baseline. The trade-off is that the two runs no longer happen at the same time, and the report warns when the baseline is over 24 hours old.
 
+A run uses about 140,000 tokens and Groq's free tier allows 200,000 a day, so only one check fits in a day. When four pull requests were checked at once, the quota ran out and none could be judged. That's why the check is opt-in: add the `run-agent-eval` label to a pull request when it's ready, one a day. Changes to the API, the LLM judge, calibration or the rag dataset don't start it, since they don't change the agent the gate runs.
+
 To turn it on:
 
 1. Add a `GROQ_API_KEY` repository secret. Until then the check skips with a notice.
 2. Run the `agent-eval-baseline` workflow once. Without a baseline, the check reports "can't judge".
 3. To make it enforce anything, mark `gate` as a required check in the branch protection settings.
+4. Create the `run-agent-eval` label (`gh label create run-agent-eval`) and add it to a pull request to check it.
 
 Each check takes about 25 minutes. Allow a day between a baseline run and a check, since together they use about 280,000 tokens. Every check keeps its report and databases as a workflow artifact for 14 days; account IDs are removed from recorded error messages, because artifacts on a public repository can be downloaded.
 
@@ -362,6 +390,8 @@ evalkit/
   stats.py         McNemar's exact test and bootstrap confidence intervals
   compare.py       command line: fairness checks, paired comparison, verdict
   gate.py          command line: pass, block or can't judge, for CI
+  judge.py         command line: LLM-as-judge scores (groundedness, correctness)
+  calibrate.py     command line: label answers yourself, measure the judge's agreement
   sample_data.py   datasets (arithmetic, mixed, hard, rag, or your own .jsonl) and their tools
   sdk.py           llm_call and tool, to evaluate your own agent
   rag.py           document corpus, ChromaDB index and the search_docs tool
@@ -371,7 +401,7 @@ scripts/build_hard_dataset.py  builds the hard dataset, computing every expected
 scripts/build_rag_dataset.py   builds the rag corpus and dataset
 prompts/           system prompt versions, for --prompt-file
 examples/          your own agent: a no-key quickstart and a Groq template
-test/              243 tests, no network needed
+test/              303 tests, no network needed
 ```
 
 ## Known limitations
@@ -392,8 +422,8 @@ test/              243 tests, no network needed
 - [ ] Evenly spaced, token-aware rate limiting
 - [x] Deterministic hallucination check against tool results
 - [x] RAG dataset: a ChromaDB-backed search tool over a fictional company's documents, 45 cases in 6 categories
-- [ ] Retrieval scorers (recall of the relevant documents) and a report that separates retrieval failures from answer failures
-- [ ] **Phase 3:** LLM-as-judge and groundedness scorers for open-ended answers, calibrated against human labels
+- [x] Retrieval scorers (recall of the relevant documents) and a report that separates retrieval failures from answer failures
+- [ ] **Phase 3:** LLM-as-judge and groundedness scorers for open-ended answers, calibrated against human labels. The judge, rubrics and calibration tools are built; the human-labelled sample that calibrates them isn't yet
 - [x] **Phase 4:** comparing versions with fairness checks, paired tests and confidence intervals
 - [x] **Phase 5:** regression gate in CI that blocks significant drops and new safety failures
 - [ ] **Phase 6:** dashboard
