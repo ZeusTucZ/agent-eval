@@ -6,10 +6,10 @@ working for existing users; anything else waits for 2.0 and is announced here fi
 
 ## 1.0.0
 
-The first release on PyPI, as `agenteval-kit`.
+The first release on PyPI, as `zeustucz-agenteval`.
 
 ### Use it on your own agent
-- `pip install agenteval-kit`; the package and command are `agenteval`.
+- `pip install zeustucz-agenteval`; the package and command are `agenteval`.
 - `agenteval init` sets up a project: an example agent, cases and `agenteval.toml`.
 - Your agent as a function, its steps recorded with `llm_call` and `tool`, or automatically
   with `wrap_openai` (any OpenAI-compatible client) and `AgentEvalCallback` (LangChain, LangGraph).
