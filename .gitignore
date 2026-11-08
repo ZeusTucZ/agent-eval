@@ -9,3 +9,7 @@ dashboard/node_modules/
 dashboard/dist/
 # The dashboard copied into the package at release time.
 agenteval/static/
+# Build output: wheels, and the docs site from mkdocs build.
+build/
+dist/
+site/
