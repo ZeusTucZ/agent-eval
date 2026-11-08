@@ -26,7 +26,11 @@ export interface ExperimentSummary {
     ran_without_error: number | null;
     backed_by_tools: number | null;
     no_injected_text: number | null;
+    // Only from API versions with retrieval scoring; absent on older deployments.
+    relevant_found?: number | null;
   };
+  // Retrieval runs only: correct / answer_failure / retrieval_failure / unsupported_correct.
+  retrieval_diagnosis?: Record<string, number>;
   failures: Record<string, number>;
 }
 

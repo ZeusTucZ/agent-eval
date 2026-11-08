@@ -1,10 +1,12 @@
-// Failures grouped by failure_type, exactly as the experiment summary
-// returns them (failures: {failure_type: count}). Retry reasons are
-// computed from the returned trial spans the same way report.py does:
-// a retried llm span is blamed on the previous span's error_type
-// ("unknown" when the previous span has none).
+// Why trials didn't pass. Two kinds, told apart because they need different fixes:
+// failures (the trial stopped: a tool error, a timeout, a rate limit) as the experiment
+// summary returns them, and wrong answers (it finished, exact_match says the answer is
+// wrong), counted from the returned trials.
 import type { Trial } from "../types";
+import { humanize, pct } from "../format";
+import BarRow from "./BarRow";
 
+/** Retries by the reason the previous attempt failed, the same way report.py counts them. */
 export function retryReasons(trials: Trial[]): Record<string, number> {
   const reasons: Record<string, number> = {};
   for (const trial of trials) {
@@ -21,77 +23,51 @@ export function retryReasons(trials: Trial[]): Record<string, number> {
   return reasons;
 }
 
+export function wrongAnswers(trials: Trial[]): number {
+  return trials.filter(
+    (trial) => !trial.failure_type && trial.scores.some((s) => s.scorer === "exact_match" && s.value < 1),
+  ).length;
+}
+
 interface Props {
   failures: Record<string, number>;
-  trialCount: number;
   trials: Trial[];
 }
 
-export default function FailureBreakdown({ failures, trialCount, trials }: Props) {
-  const entries = Object.entries(failures).sort((a, b) => b[1] - a[1]);
-  const totalFailed = entries.reduce((n, [, c]) => n + c, 0);
-  const retries = retryReasons(trials);
-  const retryEntries = Object.entries(retries).sort((a, b) => b[1] - a[1]);
+export default function FailureBreakdown({ failures, trials }: Props) {
+  const total = Math.max(trials.length, 1);
+  const rows = Object.entries(failures).map(([type, count]) => ({ label: humanize(type), count }));
+  const wrong = wrongAnswers(trials);
+  if (wrong > 0) rows.push({ label: "Wrong answer", count: wrong });
+  rows.sort((a, b) => b.count - a.count);
+
+  const retries = Object.entries(retryReasons(trials)).sort((a, b) => b[1] - a[1]);
+  const retryCount = retries.reduce((n, [, c]) => n + c, 0);
+
+  if (rows.length === 0) {
+    return <p className="notice success">Every trial finished and answered correctly.</p>;
+  }
 
   return (
-    <div>
-      <p>
-        {totalFailed} of {trialCount} trials failed
-        {totalFailed > 0 ? ` (${((totalFailed / Math.max(trialCount, 1)) * 100).toFixed(1)}%)` : ""}.
-      </p>
-      {entries.length === 0 ? (
-        <p>No failures recorded.</p>
-      ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Failure type</th>
-              <th>Trials</th>
-              <th>Share</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map(([type, count]) => {
-              const share = (count / Math.max(trialCount, 1)) * 100;
-              return (
-                <tr key={type}>
-                  <td>{type}</td>
-                  <td>{count}</td>
-                  <td>
-                    <span className="share-row">
-                      <span className="share-bar">
-                        <span style={{ width: `${share}%` }} />
-                      </span>
-                      {share.toFixed(1)}%
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-      <h3>Retries by reason</h3>
-      {retryEntries.length === 0 ? (
-        <p>No retries recorded.</p>
-      ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Reason (previous span error)</th>
-              <th>Retries</th>
-            </tr>
-          </thead>
-          <tbody>
-            {retryEntries.map(([reason, count]) => (
-              <tr key={reason}>
-                <td>{reason}</td>
-                <td>{count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
+    <>
+      <div className="bars">
+        {rows.map((row) => (
+          <BarRow
+            key={row.label}
+            label={row.label}
+            share={row.count / total}
+            value={`${row.count} · ${pct(row.count / total, 0)}`}
+            tone="bad"
+          />
+        ))}
+      </div>
+      {retryCount > 0 ? (
+        <p className="meta" style={{ marginTop: 14 }}>
+          {retryCount} request{retryCount === 1 ? " was" : "s were"} retried (
+          {retries.map(([reason, count]) => `${humanize(reason).toLowerCase()} ${count}`).join(", ")}).
+          Retried requests that then succeeded don&apos;t count as failures.
+        </p>
+      ) : null}
+    </>
   );
 }
