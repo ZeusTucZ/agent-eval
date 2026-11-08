@@ -24,7 +24,7 @@ from random import Random
 from agenteval import storage
 from agenteval.judge import Rubric, applies, load_rubric, sources_of
 from agenteval.models import EvaluationCase, Score, Trial
-from agenteval.sample_data import dataset_by_name
+from agenteval.sample_data import cases_for
 from agenteval.stats import cohens_kappa
 
 def read_label_file(path: Path) -> dict[int, bool]:
@@ -194,7 +194,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "label":
         experiment = storage.load_experiment(conn, args.experiment_id)
         trials = sample_trials(storage.load_trials(conn, args.experiment_id), rubric, args.sample, args.seed)
-        added = label(rubric, dataset_by_name(experiment.dataset_name), trials, conn, args.experiment_id)
+        added = label(rubric, cases_for(conn, experiment) or [], trials, conn, args.experiment_id)
         total = len(storage.load_labels(conn, args.experiment_id, rubric.name))
         print(f"\nSaved {added} new labels ({total} in total for {rubric.name})")
         return

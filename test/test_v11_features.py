@@ -320,3 +320,30 @@ def test_extended_catches_a_ten_point_drop_most_of_the_time():
 
     assert detection_rate(200, 3, 0.85, 0.10, simulations=200) > 0.7
     assert detection_rate(55, 3, 0.85, 0.10, simulations=200) < 0.4
+
+
+def test_an_inline_dataset_keeps_its_questions_in_reports_and_the_dashboard(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from agenteval import evaluate, storage
+    from agenteval.api import app
+    from agenteval.compare import load
+    from agenteval.sample_data import cases_for
+
+    db = tmp_path / "runs.db"
+    cases = [{"input": f"Is {n} even?", "expected_output": "yes" if n % 2 == 0 else "no",
+              "category": "parity"} for n in range(4)]
+    results = evaluate(lambda q: "yes", cases, model="m", price=(0, 0), attempts=1, db=db)
+
+    conn = storage.connect(str(db))
+    experiment = storage.load_experiment(conn, results.experiment_id)
+    assert experiment.dataset_name == "inline"  # no file or built-in name could rebuild these
+    assert [case.input for case in cases_for(conn, experiment)] == [case["input"] for case in cases]
+    assert load(conn, results.experiment_id).case_list()[0].category == "parity"
+
+    monkeypatch.setenv("DATABASE_PATH", str(db))
+    with TestClient(app) as client:
+        trials = client.get(f"/api/experiments/{results.experiment_id}/trials").json()["trials"]
+        summary = client.get(f"/api/experiments/{results.experiment_id}").json()
+    assert {trial["case"]["input"] for trial in trials} == {case["input"] for case in cases}
+    assert "parity" in json.dumps(summary)

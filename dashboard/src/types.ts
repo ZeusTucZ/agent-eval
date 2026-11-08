@@ -174,3 +174,15 @@ export interface RunRequest {
   top_k?: number;
   embedding?: "minilm" | "hashing";
 }
+
+export interface TrendPoint {
+  id: number;
+  name: string;
+  created_at: string;
+  model: string;
+  dataset_name: string;
+  config_version: string;
+  pass_rate: number | null;
+  cost_per_success: number | null;
+  latency_ms: { p50: number; p95: number };
+}

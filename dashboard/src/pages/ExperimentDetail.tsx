@@ -10,6 +10,7 @@ import Stat from "../components/Stat";
 import BarRow from "../components/BarRow";
 import FailureBreakdown, { wrongAnswers } from "../components/FailureBreakdown";
 import TrialsTable from "../components/TrialsTable";
+import Trend from "../components/Trend";
 
 interface Props {
   id: number;
@@ -165,6 +166,8 @@ export default function ExperimentDetail({ id, token, onTokenChange }: Props) {
           sub={`${usd(experiment.cost)} in total`}
         />
       </div>
+
+      <Trend experiment={experiment} />
 
       <section>
         <h2>Why trials didn&apos;t pass</h2>

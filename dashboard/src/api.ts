@@ -10,6 +10,7 @@ import type {
   Rubric,
   RunRequest,
   Trial,
+  TrendPoint,
 } from "./types";
 
 const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) ?? "").replace(/\/$/, "");
@@ -82,6 +83,10 @@ export const api = {
 
   compare(a: number, b: number): Promise<Comparison> {
     return request(`/api/compare?a=${a}&b=${b}`);
+  },
+
+  trends(dataset: string, model: string): Promise<TrendPoint[]> {
+    return request(`/api/trends?dataset=${encodeURIComponent(dataset)}&model=${encodeURIComponent(model)}`);
   },
 
   rubrics(): Promise<Rubric[]> {

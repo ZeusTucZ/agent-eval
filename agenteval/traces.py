@@ -28,7 +28,7 @@ from typing import Any
 from agenteval import storage
 from agenteval.cost import PRICES
 from agenteval.models import AgentConfig, EvaluationCase, Experiment, Price, Span, Trial, dataset_version
-from agenteval.sample_data import dataset_by_name
+from agenteval.sample_data import cases_for
 from agenteval.scorers import DEFAULT_SCORERS, score_trials
 from agenteval.tracer import clip
 
@@ -129,7 +129,8 @@ def import_traces(conn, path: Path, name: str, model: str, cases_out: Path,
         attempts=max(trial.attempt for trial in trials), prices=all_prices, created_at=datetime.now(UTC),
         planned_trials=len(trials),
     )
-    return storage.save_experiment(conn, experiment, trials, score_trials(case_list, trials, DEFAULT_SCORERS))
+    return storage.save_experiment(conn, experiment, trials, score_trials(case_list, trials, DEFAULT_SCORERS),
+                                   case_list)
 
 def export_records(experiment: Experiment, trials: list[Trial], cases: list[EvaluationCase] | None,
                    fmt: str) -> list[dict]:
@@ -195,10 +196,7 @@ def main_export(argv: list[str] | None = None) -> None:
         experiment = storage.load_experiment(conn, args.experiment_id)
     except LookupError as error:
         raise SystemExit(str(error)) from None
-    try:
-        cases = dataset_by_name(experiment.dataset_name)
-    except (ValueError, OSError):
-        cases = None
+    cases = cases_for(conn, experiment)
     records = export_records(experiment, storage.load_trials(conn, args.experiment_id), cases, args.format)
     args.output.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records), encoding="utf-8")
     print(f"Wrote {len(records)} {args.format} records to {args.output}")

@@ -114,6 +114,20 @@ def arithmetic_cases(count: int) -> list[EvaluationCase]:
         for index in range(1, count + 1)
     ]
 
+def cases_for(conn, experiment) -> list[EvaluationCase] | None:
+    """An experiment's cases: the copy saved with it, or, for older experiments, the dataset
+    rebuilt from its name. None when neither is available (a moved or deleted file)."""
+    from agenteval import storage
+
+    if experiment.id is not None:
+        stored = storage.load_cases(conn, experiment.id)
+        if stored is not None:
+            return stored
+    try:
+        return dataset_by_name(experiment.dataset_name)
+    except (ValueError, OSError):
+        return None
+
 def dataset_by_name(name: str) -> list[EvaluationCase]:
     """Rebuild a dataset from the name stored with an experiment, e.g. "mixed", "arithmetic-100",
     the path of your own .jsonl file (relative to where the run was started), or a sample of

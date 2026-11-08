@@ -38,6 +38,11 @@ def requests_per_client_per_minute() -> int:
     return int(os.environ.get("REQUESTS_PER_CLIENT_PER_MINUTE", "120"))
 
 
+def demo_seed() -> bool:
+    """DEMO_SEED=1 fills an empty database with example experiments when the server starts."""
+    return os.environ.get("DEMO_SEED", "").lower() in ("1", "true", "yes")
+
+
 def read_only() -> bool:
     """READ_ONLY=1 refuses every change (runs, re-scoring, labels, deletes): for a public demo."""
     return os.environ.get("READ_ONLY", "").lower() in ("1", "true", "yes")

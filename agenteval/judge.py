@@ -28,7 +28,7 @@ from agenteval.cost import PRICES, span_cost
 from agenteval.models import EvaluationCase, Price, Score, Trial
 from agenteval.openai_agent import PROVIDERS, classify_openai_error, openai_retry_after
 from agenteval.retry import RateLimiter, RetryPolicy, call_llm_with_retries
-from agenteval.sample_data import dataset_by_name
+from agenteval.sample_data import cases_for
 from agenteval.scorers import ABSTAINED, _normalize
 from agenteval.tracer import Tracer
 
@@ -309,7 +309,10 @@ def main(argv: list[str] | None = None) -> None:
 
     judge = Judge(model=args.model, provider=args.provider, requests_per_minute=args.rpm or None,
                   base_url=args.base_url, api_key_env=args.api_key_env, cache=None if args.no_cache else conn)
-    scores = asyncio.run(judge_trials(judge, rubric, dataset_by_name(experiment.dataset_name), trials,
+    cases = cases_for(conn, experiment)
+    if cases is None:
+        raise SystemExit(f"Can't find the cases of experiment {args.experiment_id} ({experiment.dataset_name}).")
+    scores = asyncio.run(judge_trials(judge, rubric, cases, trials,
                                       concurrency=args.concurrency))
     storage.replace_scores(conn, args.experiment_id, scores, [f"judge_{rubric.name}"])
 

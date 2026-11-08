@@ -8,7 +8,7 @@ from typing import Any
 from agenteval import storage
 from agenteval.cost import trial_cost
 from agenteval.models import AgentConfig, EvaluationCase, Experiment, Score, Trial
-from agenteval.sample_data import dataset_by_name
+from agenteval.sample_data import cases_for, dataset_by_name
 from agenteval.stats import Interval, bootstrap_mean, mcnemar_exact
 
 SIGNIFICANCE_LEVEL = 0.05
@@ -22,12 +22,21 @@ class ExperimentData:
     experiment: Experiment
     trials: list[Trial]
     scores: list[Score]
+    # The cases it ran on, when known: saved with the experiment or rebuilt from the dataset name.
+    cases: list[EvaluationCase] | None = None
+
+    def case_list(self) -> list[EvaluationCase]:
+        if self.cases is not None:
+            return self.cases
+        return dataset_by_name(self.experiment.dataset_name)
 
 def load(conn, experiment_id: int) -> ExperimentData:
+    experiment = storage.load_experiment(conn, experiment_id)
     return ExperimentData(
-        storage.load_experiment(conn, experiment_id),
+        experiment,
         storage.load_trials(conn, experiment_id),
         storage.load_scores(conn, experiment_id),
+        cases_for(conn, experiment),
     )
 
 # --- Is this comparison fair? ---
@@ -337,7 +346,7 @@ def main(argv: list[str] | None = None) -> None:
     if fairness.errors:
         raise SystemExit("Can't compare these experiments: " + "; ".join(fairness.errors))
 
-    result = compare_experiments(a, b, dataset_by_name(a.experiment.dataset_name))
+    result = compare_experiments(a, b, a.case_list())
     print(format_comparison(a, b, fairness, result))
 
 if __name__ == "__main__":

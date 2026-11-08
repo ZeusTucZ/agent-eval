@@ -25,7 +25,6 @@ from agenteval.compare import (
     is_infrastructure_failure,
     load,
 )
-from agenteval.sample_data import dataset_by_name
 
 PASS = 0
 BLOCK = 1
@@ -171,7 +170,7 @@ def run_gate(baseline_path: str, candidate_path: str, policy: Policy | None = No
     result = None
     if not fairness.errors:
         try:
-            result = compare_experiments(a, b, dataset_by_name(a.experiment.dataset_name))
+            result = compare_experiments(a, b, a.case_list())
         except ValueError as error:
             fairness.errors.append(str(error))
 

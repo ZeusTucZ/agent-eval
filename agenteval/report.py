@@ -8,7 +8,7 @@ from agenteval import storage
 from agenteval.environment import describe as describe_environment
 from agenteval.cost import total_cost
 from agenteval.models import EvaluationCase, Experiment, Score, Trial
-from agenteval.sample_data import dataset_by_name
+from agenteval.sample_data import cases_for
 
 def tool_error_rate(trials: list[Trial]) -> float:
     return failure_rate(trials, "tool_error")
@@ -268,10 +268,7 @@ def main(argv: list[str] | None = None) -> None:
         experiment = storage.load_experiment(conn, experiment_id)
     except LookupError as error:
         raise SystemExit(str(error)) from None
-    try:
-        cases = dataset_by_name(experiment.dataset_name)
-    except (ValueError, OSError):
-        cases = None  # an unknown or moved dataset only loses the per-category breakdown and questions
+    cases = cases_for(conn, experiment)  # None only loses the per-category breakdown and questions
     trials, scores = storage.load_trials(conn, experiment_id), storage.load_scores(conn, experiment_id)
 
     if args.format == "text":

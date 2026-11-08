@@ -1,7 +1,7 @@
 import argparse
 
 from agenteval import storage
-from agenteval.sample_data import dataset_by_name
+from agenteval.sample_data import cases_for
 from agenteval.scorers import DEFAULT_SCORERS, SCORER_NAMES, load_scorer, score_trials
 
 def main(argv: list[str] | None = None) -> None:
@@ -20,7 +20,10 @@ def main(argv: list[str] | None = None) -> None:
         custom = [load_scorer(spec) for spec in experiment.custom_scorers]
     except (ImportError, ValueError) as error:
         raise SystemExit(f"Can't load this experiment's scorers {experiment.custom_scorers}: {error}") from None
-    scores = score_trials(dataset_by_name(experiment.dataset_name), trials, [*DEFAULT_SCORERS, *custom])
+    cases = cases_for(conn, experiment)
+    if cases is None:
+        raise SystemExit(f"Can't find the cases of experiment {args.experiment_id} ({experiment.dataset_name}).")
+    scores = score_trials(cases, trials, [*DEFAULT_SCORERS, *custom])
     # Only the built-in scorers' and your own scorers' scores are replaced; an LLM judge's
     # (agenteval judge) are kept, since they cost money to make.
     storage.replace_scores(conn, args.experiment_id, scores, [*SCORER_NAMES, *(s.__name__ for s in custom)])

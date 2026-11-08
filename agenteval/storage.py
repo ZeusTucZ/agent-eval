@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agenteval.models import AgentConfig, Experiment, Price, Score, Span, Trial
+from agenteval.models import AgentConfig, EvaluationCase, Experiment, Price, Score, Span, Trial
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS experiments (
@@ -105,6 +105,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "planned_trials": "INTEGER",
             "environment_json": "TEXT",
             "custom_scorers_json": "TEXT",
+            # The cases it ran on, so reports don't depend on the dataset file still being there.
+            "cases_json": "TEXT",
         },
     }
     with conn:
@@ -114,17 +116,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 if column not in existing:
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
-def start_experiment(conn: sqlite3.Connection, experiment: Experiment) -> int:
+def start_experiment(conn: sqlite3.Connection, experiment: Experiment,
+                     cases: list[EvaluationCase] | None = None) -> int:
     """Record an experiment before its trials run, so each trial can be saved as it finishes:
     a run cut short keeps everything already paid for, and can be resumed."""
     with conn:
-        return _insert_experiment(conn, experiment)
+        return _insert_experiment(conn, experiment, cases)
 
-def _insert_experiment(conn: sqlite3.Connection, experiment: Experiment) -> int:
+def _insert_experiment(conn: sqlite3.Connection, experiment: Experiment,
+                       cases: list[EvaluationCase] | None = None) -> int:
     cursor = conn.execute(
         "INSERT INTO experiments (name, dataset_name, dataset_version, config_json, config_version,"
-        " attempts, prices_json, created_at, status, planned_trials, environment_json, custom_scorers_json)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " attempts, prices_json, created_at, status, planned_trials, environment_json, custom_scorers_json,"
+        " cases_json)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             experiment.name,
             experiment.dataset_name,
@@ -138,6 +143,7 @@ def _insert_experiment(conn: sqlite3.Connection, experiment: Experiment) -> int:
             experiment.planned_trials,
             json.dumps(experiment.environment),
             json.dumps(experiment.custom_scorers),
+            json.dumps([case.model_dump(exclude_none=True) for case in cases]) if cases is not None else None,
         ),
     )
     return cursor.lastrowid
@@ -191,10 +197,11 @@ def save_experiment(
     experiment: Experiment,
     trials: list[Trial],
     scores: list[Score],
+    cases: list[EvaluationCase] | None = None,
 ) -> int:
     """Save a finished experiment whole, in one transaction: a crash halfway leaves nothing behind."""
     with conn:  # sqlite3 transactions don't nest, so this uses the inserts without their own
-        experiment_id = _insert_experiment(conn, experiment)
+        experiment_id = _insert_experiment(conn, experiment, cases)
         _insert_trials(conn, experiment_id, trials, scores)
     return experiment_id
 
@@ -283,6 +290,13 @@ def load_experiment(conn: sqlite3.Connection, experiment_id: int) -> Experiment:
         environment=json.loads(row["environment_json"] or "{}"),
         custom_scorers=json.loads(row["custom_scorers_json"] or "[]"),
     )
+
+def load_cases(conn: sqlite3.Connection, experiment_id: int) -> list[EvaluationCase] | None:
+    """The cases saved with the experiment; None for experiments saved before they were kept."""
+    row = conn.execute("SELECT cases_json FROM experiments WHERE id = ?", (experiment_id,)).fetchone()
+    if row is None or not row["cases_json"]:
+        return None
+    return [EvaluationCase.model_validate(case) for case in json.loads(row["cases_json"])]
 
 def load_trials(conn: sqlite3.Connection, experiment_id: int) -> list[Trial]:
     spans_by_trial: dict[int, list[Span]] = {}

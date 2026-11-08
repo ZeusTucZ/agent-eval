@@ -405,3 +405,32 @@ def test_the_built_dashboard_is_served_at_the_root(tmp_path, monkeypatch):
     finally:
         monkeypatch.delenv("AGENTEVAL_STATIC_DIR")
         importlib.reload(agenteval.api)
+
+
+def test_trends_list_completed_runs_of_a_dataset_and_model_oldest_first(client, tmp_path):
+    for name in ("first", "second"):
+        seed_experiment(tmp_path / "api.db", name=name)
+    points = client.get("/api/trends?dataset=arithmetic-5&model=mock-llm").json()
+    assert [p["name"] for p in points] == ["first", "second"]
+    assert points[0]["pass_rate"] == 1.0 and "latency_ms" in points[0]
+    assert client.get("/api/trends?dataset=hard").json() == []
+
+
+def test_demo_seed_fills_an_empty_database_only(tmp_path, monkeypatch):
+    from agenteval.demo import seed_if_empty
+
+    path = str(tmp_path / "demo.db")
+    ids = seed_if_empty(path)
+    assert len(ids) == 3
+    assert seed_if_empty(path) == []  # not twice
+    conn = storage.connect(path)
+    names = [storage.load_experiment(conn, i).name for i in ids]
+    assert names == ["baseline", "fewer-hallucinations", "flaky-tools"]
+    assert all(storage.load_experiment(conn, i).complete for i in ids)
+
+
+def test_the_server_seeds_the_demo_on_startup(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "startup.db"))
+    monkeypatch.setenv("DEMO_SEED", "1")
+    with TestClient(app) as demo_client:
+        assert len(demo_client.get("/api/experiments").json()) == 3
