@@ -130,7 +130,7 @@ AGENT_DEFAULTS = {
     "custom": {"model": None, "dataset": None, "concurrency": 4, "timeout": 360.0, "rpm": 0},
 }
 
-BUILT_IN_DATASETS = ("arithmetic", "mixed", "hard", "rag")
+BUILT_IN_DATASETS = ("arithmetic", "mixed", "hard", "extended", "rag")
 
 def load_dataset(args) -> tuple[str, list[EvaluationCase]]:
     if args.dataset == "arithmetic":
@@ -167,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="dollars per million input and output tokens for --model, if it isn't in "
                              "agenteval/cost.py; 0 0 if you don't track cost")
     parser.add_argument("--dataset",
-                        help="arithmetic, mixed, hard, rag, or the path of your own .jsonl file; "
+                        help="arithmetic, mixed, hard, extended, rag, or the path of your own .jsonl file; "
                              "default: arithmetic for mock, mixed for gemini and groq")
     parser.add_argument("--cases", type=int, default=100, help="size of the arithmetic dataset")
     parser.add_argument("--attempts", type=int, default=3)

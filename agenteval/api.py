@@ -341,7 +341,7 @@ def list_trials(experiment_id: int, conn: Conn) -> dict:
 
 class RunRequest(BaseModel):
     agent: Literal["mock", "groq", "gemini"] = "mock"
-    dataset: Literal["arithmetic", "mixed", "hard", "rag"] = "mixed"
+    dataset: Literal["arithmetic", "mixed", "hard", "extended", "rag"] = "mixed"
     # Upper bounds keep one request from occupying the server (and the quota) for hours.
     attempts: int = Field(default=3, ge=1, le=10)
     model: str | None = None

@@ -164,7 +164,7 @@ export interface Job {
 
 export interface RunRequest {
   agent: "mock" | "groq" | "gemini";
-  dataset: "arithmetic" | "mixed" | "hard" | "rag";
+  dataset: "arithmetic" | "mixed" | "hard" | "extended" | "rag";
   attempts: number;
   model?: string;
   name: string;

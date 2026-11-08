@@ -297,3 +297,26 @@ def test_api_templates_name_their_model_and_what_they_need(template, tmp_path, m
     assert config["run"]["model"] != "example-model" and config["run"]["price"][1] > 0
     assert "API_KEY" in out
     compile((tmp_path / "my_agent.py").read_text(), "my_agent.py", "exec")  # valid Python
+
+# --- The extended dataset ---
+
+def test_extended_matches_its_builder_and_every_answer_is_reachable():
+    from scripts.build_extended_dataset import build, to_jsonl
+
+    from agenteval.sample_data import DATASETS_DIR, dataset_by_name, extended_cases, tools_for_dataset
+    from agenteval.tools import ToolRegistry
+
+    assert (DATASETS_DIR / "extended.jsonl").read_text(encoding="utf-8") == to_jsonl(build())
+    cases = extended_cases()
+    assert len(cases) == 200 and len({c.id for c in cases}) == 200 and len({c.input for c in cases}) == 200
+    assert dataset_by_name("extended") == cases
+    registry = ToolRegistry(tools_for_dataset("extended"))
+    for case in cases:
+        assert set(case.required_tools or []) <= set(registry.tools), case.input
+    assert {t.name for t in tools_for_dataset("extended#sample=20,seed=0")} == set(registry.tools)
+
+def test_extended_catches_a_ten_point_drop_most_of_the_time():
+    from agenteval.power import detection_rate
+
+    assert detection_rate(200, 3, 0.85, 0.10, simulations=200) > 0.7
+    assert detection_rate(55, 3, 0.85, 0.10, simulations=200) < 0.4

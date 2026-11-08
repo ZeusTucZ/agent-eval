@@ -52,8 +52,8 @@ options:
                         your own agent
   --price INPUT OUTPUT  dollars per million input and output tokens for --model, if it isn't in
                         agenteval/cost.py; 0 0 if you don't track cost
-  --dataset DATASET     arithmetic, mixed, hard, rag, or the path of your own .jsonl file;
-                        default: arithmetic for mock, mixed for gemini and groq
+  --dataset DATASET     arithmetic, mixed, hard, extended, rag, or the path of your own .jsonl
+                        file; default: arithmetic for mock, mixed for gemini and groq
   --cases CASES         size of the arithmetic dataset
   --attempts ATTEMPTS
   --concurrency CONCURRENCY
