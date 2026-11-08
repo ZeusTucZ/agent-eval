@@ -202,3 +202,28 @@ def test_rescore_requires_token_and_recomputes(client, tmp_path, monkeypatch):
     assert response.json()["id"] == experiment_id
 
     assert client.post("/api/experiments/999/rescore", headers=auth_headers()).status_code == 404
+
+
+def test_a_request_connection_works_from_another_thread(tmp_path, monkeypatch):
+    # FastAPI may open get_conn, run the endpoint and close the connection on different
+    # worker threads. With SQLite's default same-thread check that failed at random with 500s.
+    import threading
+
+    from evalkit.api import get_conn
+
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "threads.db"))
+    dependency = get_conn()
+    conn = next(dependency)  # opened on this thread
+    errors = []
+
+    def use_and_close():
+        try:
+            conn.execute("SELECT COUNT(*) FROM experiments").fetchone()
+            dependency.close()  # runs the dependency's cleanup: conn.close()
+        except Exception as error:  # noqa: BLE001 - reported below
+            errors.append(error)
+
+    worker = threading.Thread(target=use_and_close)
+    worker.start()
+    worker.join()
+    assert errors == []
