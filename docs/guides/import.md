@@ -34,6 +34,22 @@ answer, exact match is skipped rather than failed: the reference-free judge rubr
 question are grouped as attempts at one case. The questions are written next to the traces
 (`traces.cases.jsonl`) so reports can show them.
 
+### OpenTelemetry
+
+Traces exported as OTLP JSON (a collector's file exporter, or Phoenix and Langfuse exports)
+import the same way; the format is detected, or force it with `--format otlp`:
+
+```bash
+agenteval import spans.json --model gpt-4o-mini
+```
+
+Each trace becomes one trial. Model and tool spans are recognized by the OpenInference
+conventions (`openinference.span.kind`, `llm.token_count.*`, `tool.name`, as written by
+Arize's instrumentors) or OpenTelemetry's GenAI conventions (`gen_ai.*`). The question and
+answer come from the root span's `input.value` and `output.value`, or `agenteval.input` and
+`agenteval.output` if you set them yourself. There are no expected answers in traces, so
+exact match is skipped; tool checks, faithfulness and the judge still apply.
+
 ## Export
 
 ```bash

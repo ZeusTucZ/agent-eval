@@ -4,7 +4,7 @@
 from agenteval import (
     evaluate, aevaluate, Results,          # run and read results
     llm_call, tool, ToolArgumentError,     # trace your agent's steps
-    wrap_openai,                           # trace an OpenAI client automatically
+    wrap_openai, wrap_anthropic,           # trace an OpenAI or Anthropic client automatically
     as_scorer, Case, EvaluationCase,       # your own scorers and cases
 )
 from agenteval.integrations.langchain import AgentEvalCallback
@@ -47,9 +47,20 @@ Works inside a running event loop (Jupyter) by running in its own thread. `aeval
 | `failures()` | the trials that didn't pass, with question, expected answer and answer |
 | `to_records()`, `to_pandas()` | one row per trial with every score (pandas is optional) |
 | `compare(baseline)` | is this run better than `baseline`, as `agenteval compare` |
+| `check(min_pass_rate=, min_scores=, max_cost=, max_failures=)` | raise `AssertionError` listing what fell short; returns the results otherwise |
 | `experiment`, `trials`, `scores`, `cases` | the raw objects |
 
 In Jupyter, a `Results` displays as the HTML report.
+
+`check` turns an evaluation into a test:
+
+```python
+def test_support_agent():
+    evaluate(answer, "cases.jsonl", model="gpt-4o-mini", attempts=3).check(
+        min_pass_rate=0.9, min_scores={"tool_selection": 1.0}, max_cost=0.50)
+```
+
+A failure names each limit missed and the first failing questions with their answers.
 
 ## Tracing
 
@@ -65,8 +76,9 @@ result = await tool(name, function, *args, **kwargs)  # a tool step; function sy
 Raise `ToolArgumentError` inside a tool for arguments it can't accept. Outside an evaluation
 both helpers simply run what they wrap.
 
-`wrap_openai(client)` returns the client with `chat.completions.create` recorded (sync or
-async). `AgentEvalCallback()` goes in a LangChain or LangGraph `config={"callbacks": [...]}`.
+`wrap_openai(client, cache=None)` returns the client with `chat.completions.create`
+recorded (sync or async); `wrap_anthropic(client, cache=None)` does the same for
+`messages.create`. `cache` is a file path for replaying identical requests. `AgentEvalCallback()` goes in a LangChain or LangGraph `config={"callbacks": [...]}`.
 
 ## as_scorer
 

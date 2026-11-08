@@ -29,7 +29,9 @@ current details.
 
 ## What agenteval doesn't do
 
-- Multi-turn conversations: each case is one question and one answer.
+- Simulated users: a conversation's user turns are written in the dataset, not generated
+  in reply to the agent.
 - Hosting: it runs on your machine or your server; there is no managed service.
-- Tracing frameworks other than OpenAI clients and LangChain/LangGraph automatically;
-  others are traced by wrapping their calls with `llm_call` and `tool`.
+- Tracing frameworks other than OpenAI and Anthropic clients and LangChain/LangGraph
+  automatically; others are traced by wrapping their calls with `llm_call` and `tool`, or
+  imported from their OpenTelemetry traces.

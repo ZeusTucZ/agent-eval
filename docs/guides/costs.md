@@ -44,6 +44,8 @@ saved. Continue later with the same options, `--resume <id>` and a higher `--max
   runs compare with each other.
 - **Fewer attempts** while iterating, more (and odd) when it matters.
 - **`agenteval rescore`** re-runs the scorers on saved trials without calling the model.
+- **A response cache** (`wrap_openai(client, cache="cache.db")`, same for `wrap_anthropic`)
+  replays identical requests from a file, so re-running an unchanged agent is free.
 - **The judge's cache** makes re-judging the same answers free; `--sample` judges a subset.
 - **Rate limits**: `--rpm` spaces requests evenly and `--tpm` respects a tokens-per-minute
   cap, so you aren't paying in retries for 429s.

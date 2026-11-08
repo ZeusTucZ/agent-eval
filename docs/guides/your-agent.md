@@ -43,6 +43,31 @@ Every `client.chat.completions.create(...)` becomes a model step named after its
 the tokens the response reports. Works with Groq, OpenRouter, Ollama, vLLM, Azure and
 anything else behind the OpenAI SDK. Tools still go through `tool(...)`.
 
+## An Anthropic client, recorded automatically
+
+```python
+from anthropic import AsyncAnthropic
+from agenteval import wrap_anthropic
+
+client = wrap_anthropic(AsyncAnthropic())  # or Anthropic()
+```
+
+Every `client.messages.create(...)` becomes a model step, its input tokens including any read
+from or written to the prompt cache.
+
+## Replay responses instead of paying again
+
+Both wrappers take a cache:
+
+```python
+client = wrap_openai(AsyncOpenAI(), cache=".agenteval-cache.db")
+```
+
+A request identical to one already made in the same attempt is answered from the file,
+instantly and with no tokens. Re-running an experiment while you tune scorers, a judge or
+the report then costs nothing; change the prompt or the model and the requests differ, so
+they go to the API. Each attempt has its own entries, so attempts stay independent.
+
 ## LangChain and LangGraph
 
 ```python
@@ -56,6 +81,22 @@ async def answer(question: str) -> str:
 
 Needs `langchain-core`. Every chat model call becomes a model step (with the tokens
 LangChain reports) and every tool call a tool step.
+
+## Conversations
+
+A case with `turns` is a conversation (see [datasets](datasets.md#conversations)). Give
+your function a parameter named `messages` and it gets the conversation so far, one call per
+user turn:
+
+```python
+async def answer(messages: list[dict]) -> str:
+    response = await client.chat.completions.create(model="gpt-4o-mini", messages=messages)
+    return response.choices[0].message.content
+```
+
+`messages` is `[{"role": "user" | "assistant", "content": ...}]`, ending with the newest user
+turn. Your replies are added to it, the last reply is the answer that's scored, and the whole
+transcript is saved and shown in reports, the dashboard and to the LLM judge.
 
 ## An object with a run method
 

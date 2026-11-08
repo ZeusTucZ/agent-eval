@@ -25,6 +25,10 @@ This writes three files:
 | `cases.jsonl` | four questions with their expected answers |
 | `agenteval.toml` | which agent, model, price and dataset `agenteval run` uses |
 
+To start from an agent closer to yours, pick a template: `agenteval init --template openai`
+(or `anthropic`, `langgraph`, `rag`). Each writes a working agent and its cases, and says what
+to install and which key to set.
+
 ## 3. Run it
 
 ```bash
