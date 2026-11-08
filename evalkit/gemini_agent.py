@@ -62,6 +62,7 @@ class GeminiAgent:
         temperature: float = 0.0,
         retry_policy: RetryPolicy | None = None,
         requests_per_minute: int | None = None,  # set to your quota to avoid most 429s
+        tokens_per_minute: int | None = None,  # the provider's token cap, if it has one
         client: Any = None,  # tests pass a fake client; otherwise one is built from GEMINI_API_KEY
     ):
         self.model = model
@@ -71,7 +72,11 @@ class GeminiAgent:
         self.temperature = temperature
         self.retry_policy = retry_policy or RetryPolicy(max_retries=5, base_delay_s=2.0, max_delay_s=60.0)
         self.requests_per_minute = requests_per_minute
-        self.rate_limiter = RateLimiter(requests_per_minute) if requests_per_minute else None
+        self.tokens_per_minute = tokens_per_minute
+        self.rate_limiter = (
+            RateLimiter(requests_per_minute, tokens_per_minute)
+            if requests_per_minute or tokens_per_minute else None
+        )
         # Circuit breaker: once the daily quota is gone, every request would fail until it
         # resets, so later trials fail immediately instead of waiting on hopeless retries.
         self.quota_exhausted = False

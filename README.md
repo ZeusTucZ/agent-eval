@@ -113,7 +113,7 @@ Judge scores are stored as `judge_<rubric>` and tagged with a hash of the judge'
 ## Reliability features
 
 - **Retries with exponential backoff and jitter.** Each attempt gets its own span, so retries are visible in the trace. The wait respects the server's own hint (Gemini's `retryDelay`, HTTP `retry-after`). The OpenAI SDK's built-in retries are turned off so none are hidden.
-- **Client-side rate limiting**, to stay under a requests-per-minute quota instead of reacting to 429s.
+- **Client-side rate limiting**, to stay under a quota instead of reacting to 429s. Requests are spaced evenly (one every 60 / `--rpm` seconds), and `--tpm` adds a tokens-per-minute cap: each call reports the tokens it used, and a request waits while the last minute's tokens plus a typical request's would pass it.
 - **Circuit breaker for daily quotas.** When a provider says the *daily* limit is used up, the remaining trials fail at once as `quota_exhausted` instead of retrying for minutes.
 - **Tool errors go back to the model**, so it can correct itself. The trial continues, and the failed call is still recorded.
 - **Reproducible runs.** Each mock trial seeds its own random generator from `(seed, case, attempt)`, so results are identical however many trials run in parallel.
@@ -159,7 +159,7 @@ Set an API key as an environment variable. Never put keys in code; `.env` is git
 .venv\Scripts\python -m evalkit.run --agent groq --name groq-run --attempts 3
 ```
 
-Useful options: `--model`, `--dataset arithmetic|mixed|hard|rag`, `--concurrency`, `--rpm` (requests per minute), `--timeout`, `--max-steps`, `--temperature`, `--prompt-file`. For the mock agent: `--tool-error-rate`, `--rate-limit-rate`, `--hallucination-rate`, `--hang-rate`. See `python -m evalkit.run --help`.
+Useful options: `--model`, `--dataset arithmetic|mixed|hard|rag`, `--concurrency`, `--rpm` (requests per minute), `--tpm` (tokens per minute), `--timeout`, `--max-steps`, `--temperature`, `--prompt-file`. For the mock agent: `--tool-error-rate`, `--rate-limit-rate`, `--hallucination-rate`, `--hang-rate`. See `python -m evalkit.run --help`.
 
 Re-score a saved experiment after changing a scorer, without calling the model again:
 
@@ -257,7 +257,7 @@ def test_tool_error_rate_matches_injected():
     assert 0.07 < measured < 0.13
 ```
 
-The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 303 tests run in about 20 seconds and run in CI on every pull request.
+The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 308 tests run in about 20 seconds and run in CI on every pull request.
 
 ## Comparing versions
 
@@ -367,7 +367,7 @@ Lessons:
 - **An average can hide large moves in both directions.** Runs 7 and 8 differ by 0.9 points overall, while four categories moved by 12 to 33 points.
 - **A fix can work and still not be provable.** With 55 cases and 3 attempts, even a 15-point drop is caught only about half the time.
 - **Test the gate on a known-bad change.** The first demonstration let a 23.6-point drop through, because tied cases counted as improvements and pushed p to 0.052. Measuring detection rates then showed my claim that 55 cases catch 10-point changes was wrong.
-- **The total-vs-working latency gap in run 5 (57.8 s vs 1.6 s at p95) is my own rate limiter.** It allows 25 requests in any 60 s window, so it sends bursts and then waits.
+- **The total-vs-working latency gap in run 5 (57.8 s vs 1.6 s at p95) is my own rate limiter.** It allowed 25 requests in any 60 s window, so it sent bursts and then waited. It now spaces requests evenly and can also respect a token limit.
 
 ## Project structure
 
@@ -401,13 +401,13 @@ scripts/build_hard_dataset.py  builds the hard dataset, computing every expected
 scripts/build_rag_dataset.py   builds the rag corpus and dataset
 prompts/           system prompt versions, for --prompt-file
 examples/          your own agent: a no-key quickstart and a Groq template
-test/              303 tests, no network needed
+test/              308 tests, no network needed
 ```
 
 ## Known limitations
 
 - **The `mixed` dataset is too easy** (100% on Groq). The `hard` dataset was added for this; with about 5 cases per category, per-category rates are still rough.
-- **The rate limiter counts requests, not tokens, and allows bursts**, which inflated p95 latency on Groq.
+- **The token limit is an estimate.** A request's tokens are only known once it returns, so the limiter assumes the next one uses the mean of the last 20. A much longer request can still hit the provider's limit, and the retry then handles it.
 - **Prices are paid-tier rates from third-party trackers (October 2026).** Check them against each provider's pricing page.
 - **Attempts vary even at `temperature=0`.** They were nearly identical on the easy dataset in run 5, but differed on several hard cases in runs 7 and 8.
 - **The gate passes "Inconclusive" results**, so small regressions can get through. See the detection table.
@@ -419,7 +419,7 @@ test/              303 tests, no network needed
 - [x] **Phase 1:** concurrency, timeouts, cost, versioned configs, SQLite storage, reports
 - [x] **Phase 2:** Gemini and OpenAI-compatible agents, retries, rate limits, quotas, tool-call scoring
 - [x] Harder dataset: 55 cases in 10 categories, with a per-category report
-- [ ] Evenly spaced, token-aware rate limiting
+- [x] Evenly spaced, token-aware rate limiting
 - [x] Deterministic hallucination check against tool results
 - [x] RAG dataset: a ChromaDB-backed search tool over a fictional company's documents, 45 cases in 6 categories
 - [x] Retrieval scorers (recall of the relevant documents) and a report that separates retrieval failures from answer failures

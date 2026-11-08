@@ -156,7 +156,8 @@ def test_retrieval_settings_and_the_corpus_are_part_of_the_config():
 
 def test_only_rag_configs_record_retrieval_settings():
     agent = SimpleNamespace(model="m", system_prompt="p", max_steps=5, temperature=0.0,
-                            tools=ToolRegistry([]), retry_policy=RetryPolicy(), requests_per_minute=None)
+                            tools=ToolRegistry([]), retry_policy=RetryPolicy(), requests_per_minute=None,
+                            tokens_per_minute=None)
 
     rag = _real_agent_config(agent, "groq", SimpleNamespace(dataset="rag", top_k=2, embedding="hashing"))
     hard = _real_agent_config(agent, "groq", SimpleNamespace(dataset="hard", top_k=2, embedding="hashing"))

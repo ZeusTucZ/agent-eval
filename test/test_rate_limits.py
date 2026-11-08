@@ -26,33 +26,86 @@ class FakeTime:
         self.sleeps.append(seconds)
         self.now += seconds
 
-def test_rate_limiter_waits_once_the_minute_is_used_up():
+async def send_times(limiter: RateLimiter, time: FakeTime, count: int, tokens_each: int = 0) -> list[float]:
+    sent_at = []
+    for _ in range(count):
+        await limiter.acquire()
+        sent_at.append(time.now)
+        limiter.record(tokens_each)
+    return sent_at
+
+def test_requests_are_spaced_evenly_not_sent_in_a_burst():
     time = FakeTime()
     limiter = RateLimiter(requests_per_minute=3, clock=time.clock, sleep=time.sleep)
 
-    async def send(count):
-        sent_at = []
-        for _ in range(count):
-            await limiter.acquire()
-            sent_at.append(time.now)
-        return sent_at
+    # One every 20 s. The old limiter sent [0, 0, 0, 60, 60]: the same rate, but in bursts.
+    assert asyncio.run(send_times(limiter, time, 5)) == [0, 20, 40, 60, 80]
 
-    # Three go straight away; the 4th waits for the 1st to be 60 s old.
-    assert asyncio.run(send(5)) == [0, 0, 0, 60, 60]
-
-def test_rate_limiter_frees_slots_as_time_passes():
+def test_time_already_passed_counts_toward_the_spacing():
     time = FakeTime()
     limiter = RateLimiter(requests_per_minute=2, clock=time.clock, sleep=time.sleep)
 
     async def scenario():
-        await limiter.acquire()            # t=0
+        await limiter.acquire()            # t=0; the next may go at t=30
         time.now = 45
-        await limiter.acquire()            # t=45
-        await limiter.acquire()            # window full: wait until t=60
+        await limiter.acquire()            # already past t=30: no wait
+        await limiter.acquire()            # waits until t=75
         return time.now
 
-    assert asyncio.run(scenario()) == 60
-    assert time.sleeps == [15]
+    assert asyncio.run(scenario()) == 75
+    assert time.sleeps == [30]
+
+def test_concurrent_requests_queue_one_interval_apart():
+    time = FakeTime()
+    limiter = RateLimiter(requests_per_minute=60, clock=time.clock, sleep=time.sleep)
+
+    async def scenario():
+        sent_at = []
+
+        async def one():
+            await limiter.acquire()
+            sent_at.append(time.now)
+
+        await asyncio.gather(*(one() for _ in range(4)))
+        return sorted(sent_at)
+
+    assert asyncio.run(scenario()) == [0, 1, 2, 3]
+
+def test_token_budget_holds_requests_until_old_tokens_leave_the_window():
+    time = FakeTime()
+    limiter = RateLimiter(requests_per_minute=None, tokens_per_minute=1000, clock=time.clock, sleep=time.sleep)
+
+    # 400 tokens each: two fit in a minute; a third would pass 1000, so it waits for the
+    # first to be 60 s old.
+    assert asyncio.run(send_times(limiter, time, 4, tokens_each=400)) == [0, 0, 60, 60]
+
+def test_both_limits_apply_together():
+    time = FakeTime()
+    limiter = RateLimiter(requests_per_minute=6, tokens_per_minute=1000, clock=time.clock, sleep=time.sleep)
+
+    # Spacing allows one every 10 s, but only two 400-token calls fit in any minute.
+    assert asyncio.run(send_times(limiter, time, 4, tokens_each=400)) == [0, 10, 60, 70]
+
+def test_a_request_bigger_than_the_budget_still_goes_once_the_window_is_empty():
+    time = FakeTime()
+    limiter = RateLimiter(requests_per_minute=None, tokens_per_minute=100, clock=time.clock, sleep=time.sleep)
+
+    assert asyncio.run(send_times(limiter, time, 3, tokens_each=500)) == [0, 60, 120]
+
+def test_finished_calls_report_their_tokens_to_the_limiter():
+    time = FakeTime()
+    limiter = RateLimiter(requests_per_minute=None, tokens_per_minute=10_000, clock=time.clock, sleep=time.sleep)
+
+    async def call():
+        return "ok", 120, 30
+
+    result = asyncio.run(call_llm_with_retries(
+        Tracer(1), "model", call, RetryPolicy(), lambda error: None, Random(0), rate_limiter=limiter,
+    ))
+
+    assert result == "ok"
+    assert list(limiter.used) == [(0.0, 150)]
+    assert limiter.expected_tokens() == 150
 
 def rate_limited(retry_delay: str | None) -> errors.ClientError:
     details = [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": retry_delay}] if retry_delay else []

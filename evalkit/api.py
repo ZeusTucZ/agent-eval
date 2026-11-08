@@ -361,6 +361,7 @@ def _run_args(request: RunRequest) -> argparse.Namespace:
         concurrency=defaults["concurrency"],
         timeout=defaults["timeout"],
         rpm=defaults["rpm"],
+        tpm=None,
         max_steps=5,
         temperature=0.0,
         prompt_file=None,
