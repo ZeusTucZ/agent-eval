@@ -82,6 +82,7 @@ flowchart LR
   2. `tool_arguments_valid`: did it name a real tool and pass valid arguments (validated with pydantic)?
   3. `tool_execution`: did the tool run without an error?
 - **Hallucination proxy:** `tool_faithfulness` checks that every number in an answer, or its text, appears in a tool result. It needs no expected answer and no LLM, so it could run on every response. On real runs, 87% of answers were backed by tools, against 4.6% for a prompt that told the agent not to use them. It measures faithfulness to sources, not truth: most flagged answers were right but worked out in the model's head, so treat a flag as "unverified", not "wrong".
+- **Retrieval:** `retrieval_recall` is the share of a case's relevant documents that the agent's searches brought back, read from the trace. The report crosses it with `exact_match` to say where each RAG trial went wrong: the search missed a document (a retrieval problem), or found them all and the model still answered wrong (a generation problem). A right answer without the documents is listed apart, since it can't have come from the search.
 - **Latency:** p50/p95, both **total** (what a user waits) and **excluding waits** (time inside requests).
 - **Cost:** tokens from the provider's response × a per-model price table; total and **per successful answer**.
 - **Retries:** counted by reason (`rate_limit`, `server_error`, `connection_error`).
@@ -193,7 +194,7 @@ def test_tool_error_rate_matches_injected():
     assert 0.07 < measured < 0.13
 ```
 
-The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 243 tests run in about 20 seconds and run in CI on every pull request.
+The tool-error and hallucination tests were also seen to **fail** when the injected rate was changed, so they test something. The real-model agents are tested against fake clients built from the real SDK response and error types, and the rate limiter against a fake clock. In total, 248 tests run in about 20 seconds and run in CI on every pull request.
 
 ## Comparing versions
 
@@ -333,7 +334,7 @@ datasets/rag.jsonl, rag_corpus.jsonl  the rag dataset and its documents (generat
 scripts/build_hard_dataset.py  builds the hard dataset, computing every expected answer
 scripts/build_rag_dataset.py   builds the rag corpus and dataset
 prompts/           system prompt versions, for --prompt-file
-test/              243 tests, no network needed
+test/              248 tests, no network needed
 ```
 
 ## Known limitations
@@ -354,7 +355,7 @@ test/              243 tests, no network needed
 - [ ] Evenly spaced, token-aware rate limiting
 - [x] Deterministic hallucination check against tool results
 - [x] RAG dataset: a ChromaDB-backed search tool over a fictional company's documents, 45 cases in 6 categories
-- [ ] Retrieval scorers (recall of the relevant documents) and a report that separates retrieval failures from answer failures
+- [x] Retrieval scorers (recall of the relevant documents) and a report that separates retrieval failures from answer failures
 - [ ] **Phase 3:** LLM-as-judge and groundedness scorers for open-ended answers, calibrated against human labels
 - [x] **Phase 4:** comparing versions with fairness checks, paired tests and confidence intervals
 - [x] **Phase 5:** regression gate in CI that blocks significant drops and new safety failures
