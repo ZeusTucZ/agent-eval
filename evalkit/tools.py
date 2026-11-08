@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
-from evalkit.tracer import Tracer, clip
+from evalkit.tracer import MAX_RECORDED_TEXT, Tracer, clip
 
 class UnknownToolError(Exception):
     pass
@@ -19,6 +19,10 @@ class Tool:
     description: str
     arguments: type[BaseModel]  # validates the model's arguments and describes them to the model
     function: Callable[..., Any]
+    # How much of each result to record. Scorers read results from the trace (which documents
+    # a search returned, whether an answer is backed by them), so a tool with long results
+    # must keep them whole.
+    max_recorded_chars: int = MAX_RECORDED_TEXT
 
 class ToolRegistry:
     """The only way an agent calls tools, so every call is traced and validated."""
@@ -51,7 +55,7 @@ class ToolRegistry:
                 raise ToolArgumentError(str(error)) from error
 
             result = tool.function(**parsed.model_dump())
-            span.output = clip(json.dumps(result, ensure_ascii=False))
+            span.output = clip(json.dumps(result, ensure_ascii=False), tool.max_recorded_chars)
             return result
 
 # --- The tools the real agents can use ---

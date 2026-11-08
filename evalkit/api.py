@@ -18,6 +18,7 @@ Rules the plan fixes and this module keeps:
 """
 import argparse
 import asyncio
+import importlib.util
 import sqlite3
 import threading
 import uuid
@@ -32,6 +33,7 @@ from pydantic import BaseModel, Field
 from evalkit import config, storage
 from evalkit.cost import PRICES, total_cost
 from evalkit.models import Experiment, Score, Trial
+from evalkit.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, EMBEDDINGS, MAX_TOP_K
 from evalkit.report import latency_percentiles, mean_score
 from evalkit.scorers import score_trials
 
@@ -194,13 +196,16 @@ def list_trials(experiment_id: int, conn: Conn) -> dict:
 
 class RunRequest(BaseModel):
     agent: Literal["mock", "groq", "gemini"] = "mock"
-    dataset: Literal["arithmetic", "mixed", "hard"] = "mixed"
+    dataset: Literal["arithmetic", "mixed", "hard", "rag"] = "mixed"
     attempts: int = Field(default=3, ge=1)
     model: str | None = None
     name: str = "api-run"
     # Only for the arithmetic dataset: how many "What is N + 1" cases.
     cases: int = Field(default=100, ge=1)
     seed: int = 42
+    # Only for the rag dataset.
+    top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=MAX_TOP_K)
+    embedding: Literal[EMBEDDINGS] = DEFAULT_EMBEDDING
 
 
 _jobs: dict[str, dict] = {}
@@ -256,6 +261,8 @@ def _run_args(request: RunRequest) -> argparse.Namespace:
         hallucination_rate=0.15,
         hang_rate=0.0,
         seed=request.seed,
+        top_k=request.top_k,
+        embedding=request.embedding,
     )
 
 
@@ -324,6 +331,9 @@ def create_run(
         raise HTTPException(status_code=400, detail="Set the GROQ_API_KEY environment variable first.")
     if request.agent == "gemini" and not config.gemini_api_key():
         raise HTTPException(status_code=400, detail="Set the GEMINI_API_KEY environment variable first.")
+    # Checked now rather than failing in the background: the API image doesn't install chromadb.
+    if request.dataset == "rag" and importlib.util.find_spec("chromadb") is None:
+        raise HTTPException(status_code=400, detail='The rag dataset needs chromadb: pip install -e ".[rag]".')
 
     job = _new_job(request)
     background_tasks.add_task(_execute_run, job["id"], request)

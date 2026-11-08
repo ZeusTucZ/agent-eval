@@ -7,6 +7,7 @@ from pathlib import Path
 from evalkit import storage
 from evalkit.cost import PRICES
 from evalkit.models import AgentConfig, EvaluationCase, Experiment, dataset_version
+from evalkit.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, EMBEDDINGS, MAX_TOP_K, retrieval_config
 from evalkit.runner import Agent, run_experiment
 from evalkit.sample_data import arithmetic_cases, dataset_by_name, tools_for_dataset
 from evalkit.scorers import score_trials
@@ -30,19 +31,22 @@ def build_mock(args) -> tuple[Agent, AgentConfig]:
     )
     return MockAgent(faults, model=args.model), config
 
-def _real_agent_config(agent, provider: str) -> AgentConfig:
-    return AgentConfig(
-        model=agent.model,
-        prompt=agent.system_prompt,
-        params={
-            "provider": provider,
-            "max_steps": agent.max_steps,
-            "temperature": agent.temperature,
-            "tools": sorted(agent.tools.tools),
-            "retry_policy": asdict(agent.retry_policy),
-            "requests_per_minute": agent.requests_per_minute,
-        },
-    )
+def _real_agent_config(agent, provider: str, args) -> AgentConfig:
+    params = {
+        "provider": provider,
+        "max_steps": agent.max_steps,
+        "temperature": agent.temperature,
+        "tools": sorted(agent.tools.tools),
+        "retry_policy": asdict(agent.retry_policy),
+        "requests_per_minute": agent.requests_per_minute,
+    }
+    # Only for rag, so the other datasets' configs keep the versions their saved runs have.
+    if args.dataset == "rag":
+        params["retrieval"] = retrieval_config(args.top_k, args.embedding)
+    return AgentConfig(model=agent.model, prompt=agent.system_prompt, params=params)
+
+def _tools(args) -> ToolRegistry:
+    return ToolRegistry(tools_for_dataset(args.dataset, top_k=args.top_k, embedding=args.embedding))
 
 def _require_key(variable: str, where: str) -> None:
     import os
@@ -61,13 +65,13 @@ def build_gemini(args) -> tuple[Agent, AgentConfig]:
     _require_key("GEMINI_API_KEY", "aistudio.google.com")
     agent = GeminiAgent(
         model=args.model,
-        tools=ToolRegistry(tools_for_dataset(args.dataset)),
+        tools=_tools(args),
         system_prompt=_system_prompt(args),
         max_steps=args.max_steps,
         temperature=args.temperature,
         requests_per_minute=args.rpm or None,
     )
-    return agent, _real_agent_config(agent, "gemini")
+    return agent, _real_agent_config(agent, "gemini", args)
 
 def build_groq(args) -> tuple[Agent, AgentConfig]:
     from evalkit.openai_agent import OpenAICompatibleAgent
@@ -75,14 +79,14 @@ def build_groq(args) -> tuple[Agent, AgentConfig]:
     _require_key("GROQ_API_KEY", "console.groq.com")
     agent = OpenAICompatibleAgent(
         model=args.model,
-        tools=ToolRegistry(tools_for_dataset(args.dataset)),
+        tools=_tools(args),
         provider="groq",
         system_prompt=_system_prompt(args),
         max_steps=args.max_steps,
         temperature=args.temperature,
         requests_per_minute=args.rpm or None,
     )
-    return agent, _real_agent_config(agent, "groq")
+    return agent, _real_agent_config(agent, "groq", args)
 
 BUILDERS = {"mock": build_mock, "gemini": build_gemini, "groq": build_groq}
 
@@ -106,7 +110,7 @@ def main() -> None:
     parser.add_argument("--db", default="evalkit.db")
     parser.add_argument("--agent", choices=sorted(BUILDERS), default="mock")
     parser.add_argument("--model", help="default: mock-llm, gemini-2.5-flash or openai/gpt-oss-20b")
-    parser.add_argument("--dataset", choices=["arithmetic", "mixed", "hard"],
+    parser.add_argument("--dataset", choices=["arithmetic", "mixed", "hard", "rag"],
                         help="default: arithmetic for mock, mixed for real agents")
     parser.add_argument("--cases", type=int, default=100, help="size of the arithmetic dataset")
     parser.add_argument("--attempts", type=int, default=3)
@@ -126,6 +130,12 @@ def main() -> None:
     real.add_argument("--prompt-file", help="file holding the system prompt; default: the built-in prompt")
     real.add_argument("--rpm", type=int,
                       help="requests per minute to stay under; default 8 gemini, 25 groq; check your quota; 0 = no limit")
+
+    rag = parser.add_argument_group("rag dataset (needs: pip install -e \".[rag]\")")
+    rag.add_argument("--top-k", type=int, default=DEFAULT_TOP_K, choices=range(1, MAX_TOP_K + 1), metavar="K",
+                     help=f"documents each search returns, 1 to {MAX_TOP_K}; default {DEFAULT_TOP_K}")
+    rag.add_argument("--embedding", choices=EMBEDDINGS, default=DEFAULT_EMBEDDING,
+                     help="minilm: semantic, downloaded on first use; hashing: word matching, no download")
     args = parser.parse_args()
 
     for option, default in AGENT_DEFAULTS[args.agent].items():

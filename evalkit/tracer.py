@@ -6,10 +6,10 @@ from evalkit.models import Span
 
 MAX_RECORDED_TEXT = 1000  # per field: enough to read what happened; API errors can be much longer
 
-def clip(text: str) -> str | None:
+def clip(text: str, limit: int = MAX_RECORDED_TEXT) -> str | None:
     # Provider errors can name your account, and results may be kept where others can read them.
     redacted = re.sub(r"\borg_[A-Za-z0-9]+", "org_REDACTED", text)
-    return redacted[:MAX_RECORDED_TEXT] or None
+    return redacted[:limit] or None
 
 class Tracer:
     def __init__(self, trial_id: int):

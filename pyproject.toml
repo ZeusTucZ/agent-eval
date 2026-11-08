@@ -10,6 +10,9 @@ dependencies = ["pydantic>=2", "google-genai>=1.20", "openai>=1.40", "fastapi>=0
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx>=0.27"]  # httpx backs fastapi.testclient in test/test_api.py
+# The rag dataset's search tool. Optional because it is large (ChromaDB pulls in onnxruntime)
+# and only that dataset needs it.
+rag = ["chromadb>=1.5"]
 
 [tool.setuptools]
 packages = ["evalkit"]

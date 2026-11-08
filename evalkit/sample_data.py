@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from evalkit.models import EvaluationCase
+from evalkit.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, rag_tools
 from evalkit.tools import DEFAULT_TOOLS, HARD_TOOLS, Tool
 
 DATASETS_DIR = Path(__file__).resolve().parent.parent / "datasets"
@@ -17,8 +18,15 @@ def hard_cases() -> list[EvaluationCase]:
     """About 55 cases in 10 categories, built by scripts/build_hard_dataset.py."""
     return load_jsonl(DATASETS_DIR / "hard.jsonl")
 
-def tools_for_dataset(name: str) -> list[Tool]:
-    """The hard dataset needs extra tools (and reference data with planted errors and injections)."""
+def rag_cases() -> list[EvaluationCase]:
+    """About 45 questions over a fictional company's documents, built by scripts/build_rag_dataset.py."""
+    return load_jsonl(DATASETS_DIR / "rag.jsonl")
+
+def tools_for_dataset(name: str, top_k: int = DEFAULT_TOP_K, embedding: str = DEFAULT_EMBEDDING) -> list[Tool]:
+    """The hard dataset needs extra tools (and reference data with planted errors and injections),
+    and the rag dataset a search index. top_k and embedding only apply to rag."""
+    if name == "rag":
+        return rag_tools(top_k, embedding)
     return HARD_TOOLS if name == "hard" else DEFAULT_TOOLS
 
 def arithmetic_cases(count: int) -> list[EvaluationCase]:
@@ -38,6 +46,8 @@ def dataset_by_name(name: str) -> list[EvaluationCase]:
         return mixed_cases()
     if name == "hard":
         return hard_cases()
+    if name == "rag":
+        return rag_cases()
     if name.startswith("arithmetic-"):
         return arithmetic_cases(int(name.removeprefix("arithmetic-")))
     raise ValueError(f"unknown dataset {name!r}")
