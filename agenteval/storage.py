@@ -60,6 +60,12 @@ CREATE TABLE IF NOT EXISTS scores (
     FOREIGN KEY (experiment_id, trial_id) REFERENCES trials(experiment_id, trial_id)
 );
 
+-- LLM judge replies by a hash of the exact request, so re-judging costs nothing.
+CREATE TABLE IF NOT EXISTS judge_cache (
+    request_hash TEXT PRIMARY KEY,
+    reply        TEXT NOT NULL
+);
+
 -- A person's verdict on an answer, for checking an LLM judge (agenteval calibrate).
 CREATE TABLE IF NOT EXISTS labels (
     experiment_id INTEGER NOT NULL,
@@ -204,6 +210,14 @@ def save_label(conn: sqlite3.Connection, experiment_id: int, trial_id: int, rubr
             "INSERT OR REPLACE INTO labels VALUES (?, ?, ?, ?, ?)",
             (experiment_id, trial_id, rubric, "pass" if passed else "fail", datetime.now(UTC).isoformat()),
         )
+
+def cached_reply(conn: sqlite3.Connection, request_hash: str) -> str | None:
+    row = conn.execute("SELECT reply FROM judge_cache WHERE request_hash = ?", (request_hash,)).fetchone()
+    return row["reply"] if row else None
+
+def cache_reply(conn: sqlite3.Connection, request_hash: str, reply: str) -> None:
+    with conn:
+        conn.execute("INSERT OR REPLACE INTO judge_cache VALUES (?, ?)", (request_hash, reply))
 
 def load_labels(conn: sqlite3.Connection, experiment_id: int, rubric: str) -> dict[int, bool]:
     """trial id -> True for pass."""

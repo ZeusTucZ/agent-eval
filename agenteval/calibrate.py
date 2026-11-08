@@ -3,14 +3,15 @@
 A judge's pass rate means nothing until you know how often it agrees with a person.
 First label a random sample of answers yourself, without seeing the judge's verdicts:
 
-    python -m agenteval.calibrate label 12 --rubric groundedness --sample 50
+    agenteval calibrate label 12 --rubric groundedness --sample 50
 
 Then measure agreement on the trials both of you judged:
 
-    python -m agenteval.calibrate agree 12 --rubric groundedness
+    agenteval calibrate agree 12 --rubric groundedness
 
-Labels are saved one per line as you go (in labels/ by default), so labelling can stop
-and resume, and the file can be kept in the repository next to the dataset.
+Labels are saved in the experiment's database as you go, so labelling can stop and resume,
+and can also be done in the dashboard (agenteval ui). `agree --export labels.jsonl` writes
+them to a file to keep in the repository; `--labels FILE` brings such a file back in.
 """
 import argparse
 import json
@@ -21,22 +22,33 @@ from pathlib import Path
 from random import Random
 
 from agenteval import storage
-from agenteval.judge import RUBRICS, Rubric, applies, sources_of
+from agenteval.judge import Rubric, applies, load_rubric, sources_of
 from agenteval.models import EvaluationCase, Score, Trial
 from agenteval.sample_data import dataset_by_name
 from agenteval.stats import cohens_kappa
 
-LABELS_DIR = Path("labels")
-
-def labels_path(experiment_id: int, rubric: str) -> Path:
-    return LABELS_DIR / f"experiment-{experiment_id}-{rubric}.jsonl"
-
-def load_labels(path: Path) -> dict[int, bool]:
-    """trial id -> the human's verdict (True for pass)."""
+def read_label_file(path: Path) -> dict[int, bool]:
+    """Labels from a JSONL file (one {"trial_id", "label"} per line): trial id -> passed."""
     if not path.exists():
-        return {}
+        raise ValueError(f"no label file at {path}")
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     return {row["trial_id"]: row["label"] == "pass" for row in rows}
+
+def import_label_file(conn, experiment_id: int, rubric: str, path: Path) -> int:
+    labels = read_label_file(path)
+    for trial_id, passed in labels.items():
+        storage.save_label(conn, experiment_id, trial_id, rubric, passed)
+    return len(labels)
+
+def export_label_file(conn, experiment_id: int, rubric: str, path: Path) -> int:
+    labels = storage.load_labels(conn, experiment_id, rubric)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(
+        json.dumps({"experiment_id": experiment_id, "trial_id": trial_id, "rubric": rubric,
+                    "label": "pass" if passed else "fail"}) + "\n"
+        for trial_id, passed in sorted(labels.items())
+    ), encoding="utf-8")
+    return len(labels)
 
 def sample_trials(trials: list[Trial], rubric: Rubric, size: int, seed: int) -> list[Trial]:
     """A fixed random sample of the trials the rubric applies to, so a resumed session
@@ -59,16 +71,15 @@ def label(
     rubric: Rubric,
     cases: list[EvaluationCase],
     trials: list[Trial],
-    path: Path,
+    conn,
     experiment_id: int,
     ask: Callable[[str], str] = input,
     say: Callable[[str], None] = print,
 ) -> int:
     """Ask for a verdict on each sampled trial not yet labelled; returns how many were added."""
     by_id = {case.id: case for case in cases}
-    done = load_labels(path)
+    done = storage.load_labels(conn, experiment_id, rubric.name)
     todo = [trial for trial in trials if trial.id not in done]
-    path.parent.mkdir(parents=True, exist_ok=True)
 
     added = 0
     for number, trial in enumerate(todo, start=len(done) + 1):
@@ -82,10 +93,8 @@ def label(
             break
         if reply == "s":
             continue
-        row = {"experiment_id": experiment_id, "trial_id": trial.id, "rubric": rubric.name,
-               "label": "pass" if reply == "p" else "fail"}
-        with path.open("a", encoding="utf-8") as file:  # saved at once, so quitting loses nothing
-            file.write(json.dumps(row) + "\n")
+        # Saved at once, so quitting loses nothing.
+        storage.save_label(conn, experiment_id, trial.id, rubric.name, reply == "p")
         added += 1
     return added
 
@@ -160,31 +169,46 @@ def main(argv: list[str] | None = None) -> None:
                             ("agree", "compare your labels with the judge's scores")):
         command = commands.add_parser(name, help=help_text)
         command.add_argument("experiment_id", type=int)
-        command.add_argument("--rubric", choices=sorted(RUBRICS), required=True)
+        command.add_argument("--rubric", required=True, help="a built-in rubric or your rubric .toml file")
         command.add_argument("--db", default="agenteval.db")
-        command.add_argument("--labels", type=Path, help="label file; default: labels/experiment-<id>-<rubric>.jsonl")
+        command.add_argument("--labels", type=Path, help="first import labels from this JSONL file")
         if name == "label":
             command.add_argument("--sample", type=int, default=50, help="how many answers to label")
             command.add_argument("--seed", type=int, default=0)
+        else:
+            command.add_argument("--export", type=Path, help="also write your labels to this JSONL file")
     args = parser.parse_args(argv)
 
     sys.stdout.reconfigure(errors="replace")
     conn = storage.connect(args.db)
-    rubric = RUBRICS[args.rubric]
-    path = args.labels or labels_path(args.experiment_id, rubric.name)
+    try:
+        rubric = load_rubric(args.rubric)
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
+    if args.labels:
+        try:
+            print(f"Imported {import_label_file(conn, args.experiment_id, rubric.name, args.labels)} labels")
+        except (ValueError, KeyError) as error:
+            raise SystemExit(f"Can't read {args.labels}: {error}") from None
 
     if args.command == "label":
         experiment = storage.load_experiment(conn, args.experiment_id)
         trials = sample_trials(storage.load_trials(conn, args.experiment_id), rubric, args.sample, args.seed)
-        added = label(rubric, dataset_by_name(experiment.dataset_name), trials, path, args.experiment_id)
-        print(f"\nSaved {added} new labels to {path} ({len(load_labels(path))} in total)")
+        added = label(rubric, dataset_by_name(experiment.dataset_name), trials, conn, args.experiment_id)
+        total = len(storage.load_labels(conn, args.experiment_id, rubric.name))
+        print(f"\nSaved {added} new labels ({total} in total for {rubric.name})")
         return
 
     judge_scores = [score for score in storage.load_scores(conn, args.experiment_id)
                     if score.scorer == f"judge_{rubric.name}"]
     if not judge_scores:
-        raise SystemExit(f"No judge scores yet: python -m agenteval.judge {args.experiment_id} --rubric {rubric.name}")
-    print(format_agreement(agreement(load_labels(path), judge_scores)))
+        raise SystemExit(f"No judge scores yet: agenteval judge {args.experiment_id} --rubric {rubric.name}")
+    labels = storage.load_labels(conn, args.experiment_id, rubric.name)
+    if not labels:
+        raise SystemExit(f"No labels yet: agenteval calibrate label {args.experiment_id} --rubric {rubric.name}")
+    if args.export:
+        print(f"Wrote {export_label_file(conn, args.experiment_id, rubric.name, args.export)} labels to {args.export}")
+    print(format_agreement(agreement(labels, judge_scores)))
 
 if __name__ == "__main__":
     main()

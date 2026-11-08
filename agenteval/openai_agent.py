@@ -14,6 +14,10 @@ from agenteval.tracer import Tracer
 # Providers that speak the OpenAI chat-completions API: (base URL, environment variable with the key).
 PROVIDERS: dict[str, tuple[str, str | None]] = {
     "groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY"),
+    "openai": ("https://api.openai.com/v1", "OPENAI_API_KEY"),
+    # One key for hundreds of models (Anthropic, Google, Meta, Mistral...), named like
+    # "anthropic/claude-sonnet-4.5".
+    "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
     "ollama": ("http://localhost:11434/v1", None),  # runs on your own computer; no key
 }
 

@@ -60,6 +60,13 @@ def check_comparable(a: ExperimentData, b: ExperimentData) -> Fairness:
     """A comparison only means something if the thing under test is all that changed."""
     fairness = Fairness(changes=config_changes(a.experiment.config, b.experiment.config))
 
+    for label, data in (("A", a), ("B", b)):
+        if not data.experiment.complete:
+            fairness.errors.append(
+                f"experiment {label} ({data.experiment.id}) is {data.experiment.status}: "
+                f"{len(data.trials)} of {data.experiment.planned_trials} trials; finish it with --resume first"
+            )
+
     if a.experiment.dataset_name != b.experiment.dataset_name:
         fairness.errors.append(
             f"different datasets: {a.experiment.dataset_name} vs {b.experiment.dataset_name}"
