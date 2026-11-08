@@ -3,7 +3,7 @@
 ## 1. Install
 
 ```bash
-pip install "zeustucz-agenteval[server]"
+pip install "pyagenteval[server]"
 ```
 
 Python 3.11 or newer. `[server]` adds the dashboard; leave it out for the command line and

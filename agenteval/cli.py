@@ -44,7 +44,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "import": ("agenteval.traces", "import traces your agent already recorded, to score them"),
     "export": ("agenteval.traces", "export an experiment's trials (jsonl, or Ragas samples)"),
     "delete": ("agenteval.manage", "delete an experiment"),
-    "ui": ("agenteval.ui", "open the dashboard in your browser (needs zeustucz-agenteval[server])"),
+    "ui": ("agenteval.ui", "open the dashboard in your browser (needs pyagenteval[server])"),
 }
 
 # Options that may be given several times (action="append"): a list in the config means
@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> None:
         from importlib import metadata
 
         try:
-            print(f"agenteval {metadata.version('zeustucz-agenteval')}")
+            print(f"agenteval {metadata.version('pyagenteval')}")
         except metadata.PackageNotFoundError:
             print("agenteval (not installed as a package)")
         return

@@ -4,6 +4,13 @@ All notable changes. Versions follow [semantic versioning](https://semver.org): 
 command-line options, the Python API and the database format only change in ways that keep
 working for existing users; anything else waits for 2.0 and is announced here first.
 
+## 1.0.1
+
+The same code as 1.0.0, published under a clearer name: `pip install pyagenteval`.
+The import and the command are still `agenteval`. 1.0.0 was published as
+`zeustucz-agenteval`, which is no longer updated: switch with
+`pip uninstall zeustucz-agenteval && pip install pyagenteval`.
+
 ## 1.0.0
 
 The first release on PyPI, as `zeustucz-agenteval`.

@@ -6,7 +6,7 @@ from importlib import metadata
 from typing import Any
 
 # Packages whose version can change an agent's behaviour or how it's measured.
-TRACKED_PACKAGES = ("zeustucz-agenteval", "openai", "google-genai", "chromadb", "pydantic")
+TRACKED_PACKAGES = ("pyagenteval", "openai", "google-genai", "chromadb", "pydantic")
 
 def _git(*arguments: str) -> str | None:
     try:
@@ -45,7 +45,7 @@ def describe(environment: dict[str, Any]) -> str:
         parts.append(f"commit {environment['git_commit']}" + (" (uncommitted changes)" if environment.get("git_dirty") else ""))
     if "python" in environment:
         parts.append(f"Python {environment['python']}")
-    version = environment.get("packages", {}).get("zeustucz-agenteval")
+    version = environment.get("packages", {}).get("pyagenteval")
     if version:
         parts.append(f"agenteval {version}")
     return ", ".join(parts)

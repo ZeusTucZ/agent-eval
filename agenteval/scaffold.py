@@ -85,5 +85,5 @@ def main(argv: list[str] | None = None) -> None:
         print(f"  wrote {path}")
     print("\nNext:\n  agenteval run        run the example agent (no API key needed)\n"
           "  agenteval report     see what happened\n"
-          "  agenteval ui         browse it in the dashboard (pip install zeustucz-agenteval[server])\n\n"
+          "  agenteval ui         browse it in the dashboard (pip install pyagenteval[server])\n\n"
           f"Then put your own agent in {args.agent_file} and your questions in {args.cases_file}.")

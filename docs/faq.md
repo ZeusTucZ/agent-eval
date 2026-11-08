@@ -37,6 +37,7 @@ Yes: `evaluate()` works inside a running event loop, and `Results` displays as a
 No telemetry. Only the calls you configure (your agent, the judge, `generate`) send data to
 their providers. See [Privacy](guides/privacy.md).
 
-**Why is it `pip install zeustucz-agenteval` but `import agenteval`?**
-The shorter names were taken on PyPI, and `agenteval-kit` collides with an existing
-project once PyPI normalizes names.
+**Why is it `pip install pyagenteval` but `import agenteval`?**
+`agenteval` was taken on PyPI, so the package follows the common "py" + import name
+convention, as `pyyaml` gives `import yaml`. Version 1.0.0 was published as
+`zeustucz-agenteval`; install `pyagenteval` instead.
