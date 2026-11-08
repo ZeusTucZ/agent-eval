@@ -19,14 +19,17 @@ Rules the plan fixes and this module keeps:
 import argparse
 import asyncio
 import importlib.util
+import math
 import sqlite3
 import threading
+import time
 import uuid
-from collections import Counter
+from collections import Counter, deque
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -34,11 +37,69 @@ from evalkit import config, storage
 from evalkit.cost import PRICES, total_cost
 from evalkit.models import Experiment, Score, Trial
 from evalkit.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, EMBEDDINGS, MAX_TOP_K
-from evalkit.report import latency_percentiles, mean_score
+from evalkit.report import latency_percentiles, mean_score, retrieval_diagnosis
 from evalkit.scorers import SCORER_NAMES, score_trials
 
 app = FastAPI(title="agent-eval API", version="0.1.0")
 
+
+# ---------------------------------------------------------------------------
+# Per-client request limit. The read endpoints are public, so one client
+# looping on them could slow the service for everyone else.
+# ---------------------------------------------------------------------------
+
+class ClientLimiter:
+    """At most `limit` requests per client in any 60 seconds."""
+
+    def __init__(self, clock=time.monotonic):
+        self.clock = clock
+        self.hits: dict[str, deque[float]] = {}
+        self.lock = threading.Lock()
+
+    def retry_after(self, client: str, limit: int) -> float | None:
+        """Record a request; None if it's allowed, else seconds until it would be."""
+        now = self.clock()
+        with self.lock:
+            if len(self.hits) > 10_000:  # forget clients that went quiet, so memory stays bounded
+                self.hits = {key: times for key, times in self.hits.items() if times and now - times[-1] < 60}
+            times = self.hits.setdefault(client, deque())
+            while times and now - times[0] >= 60:
+                times.popleft()
+            if len(times) >= limit:
+                return 60 - (now - times[0])
+            times.append(now)
+            return None
+
+
+_client_limiter = ClientLimiter()
+
+
+def client_address(request: Request) -> str:
+    """The caller's IP. Behind Render's proxy every request comes from the proxy, and the
+    real client is the last X-Forwarded-For entry, the one the proxy added; earlier entries
+    are whatever the client sent, so trusting them would let anyone dodge the limit."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[-1].strip()
+    return request.client.host if request.client else "unknown"
+
+
+@app.middleware("http")
+async def limit_requests(request: Request, call_next):
+    limit = config.requests_per_client_per_minute()
+    if limit and request.url.path != "/health":  # Render's health check must always get through
+        wait = _client_limiter.retry_after(client_address(request), limit)
+        if wait is not None:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests; slow down and try again shortly."},
+                headers={"Retry-After": str(math.ceil(wait))},
+            )
+    return await call_next(request)
+
+
+# Added after the limiter so it wraps it: a 429 still carries CORS headers, and the
+# browser shows its message instead of a bare network error.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.cors_origins(),
@@ -48,12 +109,14 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
-# Database connection (one per request; SQLite connections are not shared
-# across the threads FastAPI runs sync endpoints in).
+# Database connection (one per request, never shared between requests).
 # ---------------------------------------------------------------------------
 
 def get_conn():
-    conn = storage.connect(config.database_path())
+    # FastAPI opens this dependency, runs the endpoint and closes it from worker threads that
+    # can differ, so SQLite's same-thread check fails at random with a 500. Each connection
+    # belongs to one request and is used by one thread at a time, so the check can go.
+    conn = storage.connect(config.database_path(), check_same_thread=False)
     try:
         yield conn
     finally:
@@ -122,7 +185,10 @@ def experiment_summary(experiment: Experiment, trials: list[Trial], scores: list
             "ran_without_error": _mean(scores, "tool_execution"),
             "backed_by_tools": _mean(scores, "tool_faithfulness"),
             "no_injected_text": _mean(scores, "avoids_forbidden_text"),
+            "relevant_found": _mean(scores, "retrieval_recall"),
         },
+        # Empty for datasets without retrieval. Keys are report.DIAGNOSES.
+        "retrieval_diagnosis": dict(retrieval_diagnosis(scores)),
         "failures": dict(Counter(
             trial.failure_type for trial in trials if trial.failure_type
         )),
@@ -133,7 +199,7 @@ def _load_or_404(conn: sqlite3.Connection, experiment_id: int) -> Experiment:
     try:
         return storage.load_experiment(conn, experiment_id)
     except LookupError:
-        raise HTTPException(status_code=404, detail=f"no experiment with id {experiment_id}")
+        raise HTTPException(status_code=404, detail=f"no experiment with id {experiment_id}") from None
 
 
 # ---------------------------------------------------------------------------
@@ -145,28 +211,57 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+# A summary is computed from every trial and score of an experiment: slow for real runs,
+# and the list needs one per experiment on every request. Saved trials never change and
+# scores only change when re-scored, so each summary is cached under a fingerprint of its
+# scores and rebuilt only when they differ, whichever process changed them.
+_summaries: dict[tuple[str, int], tuple[tuple, dict]] = {}  # (database, id) -> (fingerprint, summary)
+_summaries_lock = threading.Lock()
+
+
+def _scores_fingerprint(conn: sqlite3.Connection, experiment_id: int) -> tuple:
+    row = conn.execute(
+        "SELECT COUNT(*), COALESCE(SUM(value), 0), COALESCE(SUM(LENGTH(reasoning)), 0)"
+        " FROM scores WHERE experiment_id = ?",
+        (experiment_id,),
+    ).fetchone()
+    return tuple(row)
+
+
+def _summary(conn: sqlite3.Connection, experiment_id: int) -> dict:
+    key = (config.database_path(), experiment_id)  # ids restart in every database
+    fingerprint = _scores_fingerprint(conn, experiment_id)
+    with _summaries_lock:
+        cached = _summaries.get(key)
+    if cached is not None and cached[0] == fingerprint:
+        return cached[1]
+
+    summary = experiment_summary(
+        _load_or_404(conn, experiment_id),
+        storage.load_trials(conn, experiment_id),
+        storage.load_scores(conn, experiment_id),
+    )
+    with _summaries_lock:
+        _summaries[key] = (fingerprint, summary)
+    return summary
+
+
 @app.get("/api/experiments")
-def list_experiments(conn: Conn) -> list[dict]:
-    """Newest first, so the dashboard shows the latest run on top."""
-    rows = conn.execute("SELECT id FROM experiments ORDER BY id DESC").fetchall()
-    return [
-        experiment_summary(
-            storage.load_experiment(conn, row["id"]),
-            storage.load_trials(conn, row["id"]),
-            storage.load_scores(conn, row["id"]),
-        )
-        for row in rows
-    ]
+def list_experiments(
+    conn: Conn,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[dict]:
+    """Newest first, so the dashboard shows the latest run on top; a page at a time."""
+    rows = conn.execute(
+        "SELECT id FROM experiments ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset),
+    ).fetchall()
+    return [_summary(conn, row["id"]) for row in rows]
 
 
 @app.get("/api/experiments/{experiment_id}")
 def get_experiment(experiment_id: int, conn: Conn) -> dict:
-    experiment = _load_or_404(conn, experiment_id)
-    return experiment_summary(
-        experiment,
-        storage.load_trials(conn, experiment_id),
-        storage.load_scores(conn, experiment_id),
-    )
+    return _summary(conn, experiment_id)
 
 
 @app.get("/api/experiments/{experiment_id}/trials")
@@ -197,19 +292,24 @@ def list_trials(experiment_id: int, conn: Conn) -> dict:
 class RunRequest(BaseModel):
     agent: Literal["mock", "groq", "gemini"] = "mock"
     dataset: Literal["arithmetic", "mixed", "hard", "rag"] = "mixed"
-    attempts: int = Field(default=3, ge=1)
+    # Upper bounds keep one request from occupying the server (and the quota) for hours.
+    attempts: int = Field(default=3, ge=1, le=10)
     model: str | None = None
-    name: str = "api-run"
+    name: str = Field(default="api-run", max_length=80)
     # Only for the arithmetic dataset: how many "What is N + 1" cases.
-    cases: int = Field(default=100, ge=1)
+    cases: int = Field(default=100, ge=1, le=1000)
     seed: int = 42
     # Only for the rag dataset.
     top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=MAX_TOP_K)
     embedding: Literal[EMBEDDINGS] = DEFAULT_EMBEDDING
 
 
-_jobs: dict[str, dict] = {}
+_jobs: dict[str, dict] = {}  # in memory: a restart forgets them, but the experiments are saved
 _jobs_lock = threading.Lock()
+# Runs execute one at a time, so a longer queue only means waiting; refuse beyond this.
+MAX_WAITING_JOBS = 3
+# Finished jobs kept for polling; older ones are dropped so memory doesn't grow forever.
+MAX_KEPT_JOBS = 100
 # SQLite has a single writer: runs queue behind each other instead of
 # colliding on "database is locked".
 _run_lock = threading.Lock()
@@ -230,7 +330,15 @@ def _new_job(request: RunRequest) -> dict:
     }
     with _jobs_lock:
         _jobs[job["id"]] = job
+        finished = [job_id for job_id, kept in _jobs.items() if kept["status"] in ("completed", "failed")]
+        for job_id in finished[: max(0, len(_jobs) - MAX_KEPT_JOBS)]:  # oldest first: dicts keep order
+            del _jobs[job_id]
     return job
+
+
+def _waiting_jobs() -> int:
+    with _jobs_lock:
+        return sum(job["status"] in ("queued", "running") for job in _jobs.values())
 
 
 def _set_job(job_id: str, **updates) -> None:
@@ -298,9 +406,11 @@ def _execute_run(job_id: str, request: RunRequest) -> None:
                 prices=PRICES,
                 created_at=datetime.now(timezone.utc),
             )
-            experiment_id = storage.save_experiment(
-                storage.connect(config.database_path()), experiment, trials, scores,
-            )
+            conn = storage.connect(config.database_path())
+            try:
+                experiment_id = storage.save_experiment(conn, experiment, trials, scores)
+            finally:
+                conn.close()
             _set_job(job_id, status="completed", experiment_id=experiment_id)
         except BaseException as error:  # noqa: BLE001 - a failed job must report, not crash the worker
             _set_job(job_id, status="failed", error=str(error))
@@ -334,6 +444,9 @@ def create_run(
     # Checked now rather than failing in the background: the API image doesn't install chromadb.
     if request.dataset == "rag" and importlib.util.find_spec("chromadb") is None:
         raise HTTPException(status_code=400, detail='The rag dataset needs chromadb: pip install -e ".[rag]".')
+
+    if _waiting_jobs() >= MAX_WAITING_JOBS:
+        raise HTTPException(status_code=429, detail="Too many runs waiting; try again when one finishes.")
 
     job = _new_job(request)
     background_tasks.add_task(_execute_run, job["id"], request)
@@ -369,7 +482,7 @@ def rescore_experiment(
         raise HTTPException(
             status_code=400,
             detail=f"unknown dataset {experiment.dataset_name!r}; cannot re-score",
-        )
+        ) from None
     # Only the built-in scorers' scores are replaced; an LLM judge's are kept.
     storage.replace_scores(conn, experiment_id, score_trials(dataset, trials), SCORER_NAMES)
     return experiment_summary(experiment, trials, storage.load_scores(conn, experiment_id))

@@ -27,7 +27,7 @@ def cohens_kappa(first: list[bool], second: list[bool]) -> float:
         raise ValueError("need two equally long, non-empty lists of labels")
 
     size = len(first)
-    observed = sum(a == b for a, b in zip(first, second)) / size
+    observed = sum(a == b for a, b in zip(first, second, strict=True)) / size
     first_pass, second_pass = sum(first) / size, sum(second) / size
     expected = first_pass * second_pass + (1 - first_pass) * (1 - second_pass)
     if expected == 1.0:

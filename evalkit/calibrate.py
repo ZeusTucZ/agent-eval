@@ -108,17 +108,17 @@ def agreement(labels: dict[int, bool], judge_scores: list[Score]) -> Agreement:
 
     human = [labels[trial_id] for trial_id in both]
     judged = [by_trial[trial_id].value == 1.0 for trial_id in both]
-    confusion = {(h, j): sum(1 for a, b in zip(human, judged) if (a, b) == (h, j))
+    confusion = {(h, j): sum(1 for a, b in zip(human, judged, strict=True) if (a, b) == (h, j))
                  for h in (True, False) for j in (True, False)}
     return Agreement(
         compared=len(both),
-        agreement=sum(a == b for a, b in zip(human, judged)) / len(both),
+        agreement=sum(a == b for a, b in zip(human, judged, strict=True)) / len(both),
         kappa=cohens_kappa(human, judged),
         human_pass_rate=sum(human) / len(both),
         judge_pass_rate=sum(judged) / len(both),
         confusion=confusion,
         disagreements=[(trial_id, h, by_trial[trial_id])
-                       for trial_id, h, j in zip(both, human, judged) if h != j],
+                       for trial_id, h, j in zip(both, human, judged, strict=True) if h != j],
     )
 
 def verdict(kappa: float, compared: int) -> str:

@@ -1,3 +1,4 @@
+import json
 import re
 import unicodedata
 from collections import Counter
@@ -133,6 +134,38 @@ def tool_faithfulness(case: EvaluationCase, trial: Trial) -> Score | None:
     return Score(trial_id=trial.id, scorer="tool_faithfulness", value=0.0 if unsupported else 1.0,
                  reasoning=f"not in any tool result: {unsupported}" if unsupported else "backed by tool results")
 
+# --- Retrieval: did the search find the documents the answer is in? ---
+
+SEARCH_TOOL = "search_docs"
+
+def retrieved_doc_ids(trial: Trial) -> set[str]:
+    """Every document any search in the trial returned, read from the recorded results."""
+    found = set()
+    for span in _tool_spans(trial):
+        if span.name != SEARCH_TOOL or span.status != "success" or span.output is None:
+            continue
+        try:
+            results = json.loads(span.output)
+        except json.JSONDecodeError:
+            continue  # cut short by the recording limit; the rag tool's limit is set so this can't happen
+        found.update(result["doc_id"] for result in results if isinstance(result, dict) and "doc_id" in result)
+    return found
+
+def retrieval_recall(case: EvaluationCase, trial: Trial) -> Score | None:
+    """What share of the documents holding the answer did the agent's searches bring back?
+
+    Kept apart from exact_match so a wrong answer can be traced: the search never found the
+    document (a retrieval problem), or found it and the model still answered wrong (a
+    generation problem). Not searching at all scores 0.
+    """
+    if not case.relevant_docs or not _model_responded(trial):
+        return None  # no retrieval case, nothing to find, or the model never got to search
+
+    found = set(case.relevant_docs) & retrieved_doc_ids(trial)
+    missing = sorted(set(case.relevant_docs) - found)
+    return Score(trial_id=trial.id, scorer="retrieval_recall", value=len(found) / len(case.relevant_docs),
+                 reasoning=f"missing: {missing}" if missing else f"found all {len(found)}")
+
 # --- Safety ---
 
 def avoids_forbidden_text(case: EvaluationCase, trial: Trial) -> Score | None:
@@ -145,7 +178,8 @@ def avoids_forbidden_text(case: EvaluationCase, trial: Trial) -> Score | None:
                  reasoning=f"output contains {leaked}" if leaked else "no forbidden text")
 
 DEFAULT_SCORERS: list[Scorer] = [
-    exact_match, tool_selection, tool_arguments_valid, tool_execution, tool_faithfulness, avoids_forbidden_text,
+    exact_match, tool_selection, tool_arguments_valid, tool_execution, tool_faithfulness, retrieval_recall,
+    avoids_forbidden_text,
 ]
 
 # What each built-in scorer calls its scores: the function's name.

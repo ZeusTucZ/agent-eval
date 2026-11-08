@@ -7,8 +7,16 @@ on:
     branches: [main]
     paths:
       - "evalkit/**"
+      # Not part of the agent the gate runs: the HTTP API, the LLM judge, calibration,
+      # re-scoring and the rag dataset's search tool.
+      - "!evalkit/api.py"
+      - "!evalkit/config.py"
+      - "!evalkit/judge.py"
+      - "!evalkit/calibrate.py"
+      - "!evalkit/rescore.py"
+      - "!evalkit/rag.py"
       - "prompts/**"
-      - "datasets/**"
+      - "datasets/hard.jsonl"
       - ".github/workflows/agent-eval-baseline.yml"
   schedule:
     - cron: "0 9 * * 1"  # weekly, as the provider's model can change without any commit here
