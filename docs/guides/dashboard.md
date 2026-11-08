@@ -17,7 +17,9 @@ and handed to the browser, so actions work without typing one.
   didn't pass (failures and wrong answers, largest first); search or answer, for RAG runs;
   pass rate by category; every check, the judge's and your own scorers; then the trials,
   opened on the ones that didn't pass, each with its question, expected answer, answer,
-  steps and scores with their reasoning.
+  steps and scores with their reasoning; for conversations, the whole exchange. Below the
+  headline, the pass rate of every run of the same model on the same dataset, oldest
+  first, with a link to compare this run with the one before.
 - **A comparison**: the verdict in plain words, the change with its confidence interval,
   categories that moved, and the questions that flipped, with both answers.
 - **Label answers**: one answer at a time, `p` or `f`, to check the LLM judge; the
@@ -37,6 +39,7 @@ Every view has its own link (`#/e/3`, `#/compare/1/2`), so you can share them.
   address, and add the site's address to the API's `CORS_ORIGINS`.
 
 For a public demo, set `READ_ONLY=1`: every change (runs, re-scoring, labels, deletes) is
-refused whatever the token. Otherwise set `API_TOKEN` and keep it secret; the API also limits
+refused whatever the token. With `DEMO_SEED=1` an empty database starts with three example
+runs of the mock agent, so a demo on a disk that's wiped at each deploy isn't empty. Otherwise set `API_TOKEN` and keep it secret; the API also limits
 each client to `REQUESTS_PER_CLIENT_PER_MINUTE` (120 by default). The repository's
 `Dockerfile` and `render.yaml` deploy the API on Render.

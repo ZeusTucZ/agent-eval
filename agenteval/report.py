@@ -8,7 +8,7 @@ from agenteval import storage
 from agenteval.environment import describe as describe_environment
 from agenteval.cost import total_cost
 from agenteval.models import EvaluationCase, Experiment, Score, Trial
-from agenteval.sample_data import dataset_by_name
+from agenteval.sample_data import cases_for
 
 def tool_error_rate(trials: list[Trial]) -> float:
     return failure_rate(trials, "tool_error")
@@ -105,7 +105,7 @@ def retrieval_diagnosis(scores: list[Score]) -> Counter[str]:
 # is listed under "Other scores".
 BUILT_IN_SCORERS = {
     "exact_match", "tool_selection", "tool_arguments_valid", "tool_execution", "tool_faithfulness",
-    "retrieval_recall", "avoids_forbidden_text",
+    "retrieval_recall", "avoids_forbidden_text", "trajectory_order", "step_efficiency", "redundant_calls",
 }
 
 def other_scores(scores: list[Score]) -> dict[str, tuple[float, int]]:
@@ -160,8 +160,9 @@ def summary_data(
         "cost_per_success": cost / successes if successes else None,
         "checks": {
             name: mean_or_none(name)
-            for name in ("tool_selection", "tool_arguments_valid", "tool_execution", "tool_faithfulness",
-                         "retrieval_recall", "avoids_forbidden_text")
+            for name in ("tool_selection", "tool_arguments_valid", "tool_execution", "trajectory_order",
+                         "step_efficiency", "redundant_calls", "tool_faithfulness", "retrieval_recall",
+                         "avoids_forbidden_text")
         },
         "retrieval_diagnosis": dict(retrieval_diagnosis(scores)),
         "other_scores": {name: {"mean": mean, "trials": count} for name, (mean, count) in other_scores(scores).items()},
@@ -218,6 +219,12 @@ def summarize(
         "  " + _rate_line("ran without error", _scores_named(scores, "tool_execution")),
         "  " + _rate_line("backed by tools", _scores_named(scores, "tool_faithfulness")),
     ]
+    trajectory = [(label, _scores_named(scores, name)) for label, name in (
+        ("right order", "trajectory_order"), ("step efficiency", "step_efficiency"),
+        ("no repeated calls", "redundant_calls"))]
+    if any(found for _, found in trajectory):
+        lines.append("Trajectory:")
+        lines += ["  " + _rate_line(label, found) for label, found in trajectory if found]
     recall = _scores_named(scores, "retrieval_recall")
     if recall:
         diagnoses = retrieval_diagnosis(scores)
@@ -261,10 +268,7 @@ def main(argv: list[str] | None = None) -> None:
         experiment = storage.load_experiment(conn, experiment_id)
     except LookupError as error:
         raise SystemExit(str(error)) from None
-    try:
-        cases = dataset_by_name(experiment.dataset_name)
-    except (ValueError, OSError):
-        cases = None  # an unknown or moved dataset only loses the per-category breakdown and questions
+    cases = cases_for(conn, experiment)  # None only loses the per-category breakdown and questions
     trials, scores = storage.load_trials(conn, experiment_id), storage.load_scores(conn, experiment_id)
 
     if args.format == "text":
@@ -275,7 +279,7 @@ def main(argv: list[str] | None = None) -> None:
         Path(args.output).write_text(text, encoding="utf-8")
         print(f"Wrote the {args.format} report for experiment {experiment_id} to {args.output}")
     else:
-        sys.stdout.reconfigure(errors="replace")
+        sys.stdout.reconfigure(errors="replace")  # type: ignore[union-attr]
         print(text)
 
 if __name__ == "__main__":

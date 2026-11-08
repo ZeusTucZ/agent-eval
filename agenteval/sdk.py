@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from agenteval.models import EvaluationCase, Span
-from agenteval.runner import Agent, EmptyOutput
+from agenteval.runner import Agent, AgentFailure, EmptyOutput
 from agenteval.tools import ToolArgumentError  # noqa: F401 - re-exported: raise it for invalid arguments
 from agenteval.tracer import Tracer, clip
 
@@ -47,6 +47,7 @@ MAX_RECORDED_TOOL_OUTPUT = 4000
 class _Trial:
     tracer: Tracer
     model: str  # the run's --model, used when llm_call isn't given one
+    attempt: int = 1  # so a response cache keeps attempts at the same question independent
 
 _active: ContextVar[_Trial | None] = ContextVar("agenteval_trial", default=None)
 
@@ -105,25 +106,46 @@ class FunctionAgent:
     def __init__(self, function: Callable[..., Any], model: str):
         self.function = function
         self.model = model
-        self.wants_case = "case" in inspect.signature(function).parameters
+        parameters = inspect.signature(function).parameters
+        self.wants_case = "case" in parameters
+        self.wants_messages = "messages" in parameters
+
+    async def _call(self, argument: Any) -> Any:
+        if inspect.iscoroutinefunction(self.function):
+            return await self.function(argument)
+        # In a thread, so a blocking agent doesn't stop the other trials. The thread gets a
+        # copy of this context, so llm_call and tool still find the trial. A timeout can't
+        # stop a thread, though: prefer an async agent if steps can hang.
+        return await asyncio.to_thread(self.function, argument)
 
     async def run(self, case: EvaluationCase, attempt: int, tracer: Tracer) -> str:
-        argument = case if self.wants_case else case.input
-        token = _active.set(_Trial(tracer, self.model))
+        token = _active.set(_Trial(tracer, self.model, attempt))
         try:
-            if inspect.iscoroutinefunction(self.function):
-                answer = await self.function(argument)
+            if case.turns:
+                answer = await self._converse(case.turns, tracer)
             else:
-                # In a thread, so a blocking agent doesn't stop the other trials. The thread gets
-                # a copy of this context, so llm_call and tool still find the trial. A timeout
-                # can't stop a thread, though: prefer an async agent if steps can hang.
-                answer = await asyncio.to_thread(self.function, argument)
+                answer = await self._call(case if self.wants_case else case.input)
         finally:
             _active.reset(token)
 
         if answer is None or not str(answer).strip():
             raise EmptyOutput("the agent returned no answer")
         return str(answer)
+
+    async def _converse(self, turns: list[str], tracer: Tracer) -> str | None:
+        """Give the agent the conversation so far, one user turn at a time; its replies go into
+        the transcript, and the last one is the trial's answer."""
+        if not self.wants_messages:
+            raise AgentFailure("this case is a conversation: give your agent a parameter named `messages`, "
+                               "the conversation so far as [{\"role\": ..., \"content\": ...}]")
+        messages: list[dict[str, str]] = []
+        tracer.transcript = messages
+        reply = None
+        for turn in turns:
+            messages.append({"role": "user", "content": turn})
+            reply = await self._call(list(messages))
+            messages.append({"role": "assistant", "content": "" if reply is None else str(reply)})
+        return reply
 
 def load_agent(spec: str, model: str) -> tuple[Agent, str]:
     """Import "package.module:name". Returns the agent and a hash of its module's source.

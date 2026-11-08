@@ -25,8 +25,9 @@ import threading
 import time
 import uuid
 from collections import Counter, deque
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -54,7 +55,19 @@ from agenteval.report import (
 from agenteval.sample_data import dataset_by_name
 from agenteval.scorers import SCORER_NAMES, score_trials
 
-app = FastAPI(title="agent-eval API", version="0.1.0")
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """DEMO_SEED=1 fills an empty database with example runs of the mock agent, so a public
+    demo isn't empty after every redeploy of a server without a persistent disk."""
+    if config.demo_seed():
+        from agenteval.demo import seed_if_empty
+
+        # In a thread: seeding runs its own event loop, which can't nest in the server's.
+        await asyncio.to_thread(seed_if_empty, config.database_path())
+    yield
+
+
+app = FastAPI(title="agenteval API", version="1.1.0", lifespan=_lifespan)
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +193,11 @@ def _mean(scores: list[Score], scorer: str) -> float | None:
 _datasets: dict[str, list[EvaluationCase] | None] = {}
 
 
-def _cases_for(experiment: Experiment) -> list[EvaluationCase] | None:
+def _cases_for(conn, experiment: Experiment) -> list[EvaluationCase] | None:
+    if experiment.id is not None:
+        stored = storage.load_cases(conn, experiment.id)
+        if stored is not None:
+            return stored  # the copy saved with the experiment, wherever its file went
     name = experiment.dataset_name
     if name not in _datasets:
         try:
@@ -227,6 +244,9 @@ def experiment_summary(experiment: Experiment, trials: list[Trial], scores: list
             "backed_by_tools": _mean(scores, "tool_faithfulness"),
             "no_injected_text": _mean(scores, "avoids_forbidden_text"),
             "relevant_found": _mean(scores, "retrieval_recall"),
+            "right_order": _mean(scores, "trajectory_order"),
+            "step_efficiency": _mean(scores, "step_efficiency"),
+            "no_repeated_calls": _mean(scores, "redundant_calls"),
         },
         # Empty for datasets without retrieval. Keys are report.DIAGNOSES.
         "retrieval_diagnosis": dict(retrieval_diagnosis(scores)),
@@ -282,7 +302,7 @@ def _summary(conn: sqlite3.Connection, experiment_id: int) -> dict:
         experiment,
         storage.load_trials(conn, experiment_id),
         storage.load_scores(conn, experiment_id),
-        _cases_for(experiment),
+        _cases_for(conn, experiment),
     )
     with _summaries_lock:
         _summaries[key] = (fingerprint, summary)
@@ -310,7 +330,7 @@ def get_experiment(experiment_id: int, conn: Conn) -> dict:
 @app.get("/api/experiments/{experiment_id}/trials")
 def list_trials(experiment_id: int, conn: Conn) -> dict:
     experiment = _load_or_404(conn, experiment_id)
-    cases = {case.id: case for case in _cases_for(experiment) or []}
+    cases = {case.id: case for case in _cases_for(conn, experiment) or []}
     trials = storage.load_trials(conn, experiment_id)
     scores = storage.load_scores(conn, experiment_id)
     scores_by_trial: dict[int, list[dict]] = {}
@@ -338,7 +358,7 @@ def list_trials(experiment_id: int, conn: Conn) -> dict:
 
 class RunRequest(BaseModel):
     agent: Literal["mock", "groq", "gemini"] = "mock"
-    dataset: Literal["arithmetic", "mixed", "hard", "rag"] = "mixed"
+    dataset: Literal["arithmetic", "mixed", "hard", "extended", "rag"] = "mixed"
     # Upper bounds keep one request from occupying the server (and the quota) for hours.
     attempts: int = Field(default=3, ge=1, le=10)
     model: str | None = None
@@ -348,7 +368,7 @@ class RunRequest(BaseModel):
     seed: int = 42
     # Only for the rag dataset.
     top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=MAX_TOP_K)
-    embedding: Literal[EMBEDDINGS] = DEFAULT_EMBEDDING
+    embedding: Literal[EMBEDDINGS] = DEFAULT_EMBEDDING  # type: ignore[valid-type]
 
 
 _jobs: dict[str, dict] = {}  # in memory: a restart forgets them, but the experiments are saved
@@ -363,7 +383,7 @@ _run_lock = threading.Lock()
 
 
 def _new_job(request: RunRequest) -> dict:
-    job = {
+    job: dict[str, Any] = {
         "id": uuid.uuid4().hex[:12],
         "status": "queued",
         "agent": request.agent,
@@ -520,17 +540,14 @@ def rescore_experiment(
     conn: Conn,
     _token: None = Depends(require_token),
 ) -> dict:
-    from agenteval.sample_data import dataset_by_name
-
     experiment = _load_or_404(conn, experiment_id)
     trials = storage.load_trials(conn, experiment_id)
-    try:
-        dataset = dataset_by_name(experiment.dataset_name)
-    except ValueError:
+    dataset = _cases_for(conn, experiment)
+    if dataset is None:
         raise HTTPException(
             status_code=400,
             detail=f"unknown dataset {experiment.dataset_name!r}; cannot re-score",
-        ) from None
+        )
     # Only the built-in scorers' scores are replaced; an LLM judge's are kept.
     storage.replace_scores(conn, experiment_id, score_trials(dataset, trials), SCORER_NAMES)
     return experiment_summary(experiment, trials, storage.load_scores(conn, experiment_id), dataset)
@@ -584,6 +601,25 @@ def _interval(metric) -> dict:
             "low": metric.change.low, "high": metric.change.high}
 
 
+@app.get("/api/trends")
+def trends(conn: Conn, dataset: str | None = None, model: str | None = None) -> list[dict]:
+    """Completed experiments over time, oldest first, optionally for one dataset (a sample of
+    it counts too) and model: how pass rate, cost and latency moved from version to version."""
+    points = []
+    for experiment_id in storage.list_experiment_ids(conn):
+        summary = _summary(conn, experiment_id)
+        if summary.get("status", "completed") != "completed":
+            continue
+        if dataset and summary["dataset_name"].split("#")[0] != dataset.split("#")[0]:
+            continue
+        if model and summary["model"] != model:
+            continue
+        points.append({key: summary[key] for key in (
+            "id", "name", "created_at", "model", "dataset_name", "config_version", "pass_rate",
+            "cost_per_success", "latency_ms")})
+    return points
+
+
 @app.get("/api/compare")
 def compare(a: int, b: int, conn: Conn) -> dict:
     """Is experiment b better than experiment a?"""
@@ -595,7 +631,7 @@ def compare(a: int, b: int, conn: Conn) -> dict:
     base = {"a": a, "b": b, "errors": fairness.errors, "warnings": fairness.warnings, "changes": fairness.changes}
     if fairness.errors:
         return {**base, "verdict": None}
-    cases = _cases_for(first.experiment)
+    cases = _cases_for(conn, first.experiment)
     if cases is None:
         return {**base, "errors": [f"the dataset {first.experiment.dataset_name} isn't available here"], "verdict": None}
     result = compare_experiments(first, second, cases)
@@ -637,7 +673,7 @@ def get_labels(experiment_id: int, rubric: str, conn: Conn) -> dict:
     trials = storage.load_trials(conn, experiment_id)
     labels = storage.load_labels(conn, experiment_id, rubric)
     judge_scores = [s for s in storage.load_scores(conn, experiment_id) if s.scorer == f"judge_{rubric}"]
-    cases = {case.id: case for case in _cases_for(experiment) or []}
+    cases = {case.id: case for case in _cases_for(conn, experiment) or []}
 
     queue = [t for t in sample_trials(trials, RUBRICS[rubric], 50, seed=0) if t.id not in labels]
     agreement_data = None

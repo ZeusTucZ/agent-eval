@@ -4,6 +4,41 @@ All notable changes. Versions follow [semantic versioning](https://semver.org): 
 command-line options, the Python API and the database format only change in ways that keep
 working for existing users; anything else waits for 2.0 and is announced here first.
 
+## 1.1.0
+
+### How the agent got there
+- Three trajectory scorers, on by default: `trajectory_order` (tools called in the order of
+  a case's new `expected_trajectory`), `step_efficiency` (calls needed over calls made;
+  `max_tool_calls` sets what's needed) and `redundant_calls` (the same call repeated after
+  it worked).
+- `tool_faithfulness` now also checks imported traces, where the expected tools are unknown.
+
+### More agents, less code
+- `wrap_anthropic(client)` records Anthropic `messages.create` calls, like `wrap_openai`.
+- Both wrappers take `cache="file.db"`: identical requests are replayed from the file,
+  so re-running an unchanged agent costs nothing.
+- `agenteval import` reads OpenTelemetry traces (OTLP JSON) using the OpenInference or GenAI
+  conventions; `--format` picks the format when detection isn't enough.
+- `agenteval init --template openai|anthropic|langgraph|rag` starts from a working agent of
+  that kind.
+
+### Conversations
+- A case with `turns` is a multi-turn conversation. Agents with a `messages` parameter get
+  the conversation so far at each turn; the transcript is saved and shown in reports, the
+  dashboard and to the judge. `must_not_contain` is checked in every reply.
+
+### Tests, data and the dashboard
+- `results.check(min_pass_rate=..., min_scores=..., max_cost=..., max_failures=...)` fails a
+  pytest test with what fell short and the first failing questions.
+- The built-in `extended` dataset: 200 cases in 11 categories, enough to catch a drop of
+  about 10 points.
+- The dashboard shows each run's pass rate over time next to the runs before it, with a
+  link to compare with the previous one. `DEMO_SEED=1` starts an empty server with example
+  runs.
+- Experiments keep a copy of their cases, so reports, comparisons, re-scoring and the
+  dashboard work for inline datasets and moved files. Older experiments are unaffected.
+- The package is type-checked with mypy in CI.
+
 ## 1.0.1
 
 The same code as 1.0.0, published under a clearer name: `pip install pyagenteval`.

@@ -9,12 +9,16 @@ command's `--help` by `scripts/build_cli_reference.py`.
 Set up a project: an example agent, cases and agenteval.toml.
 
 ```
-usage: agenteval init [-h] [--agent-file AGENT_FILE] [--cases-file CASES_FILE] [--force]
+usage: agenteval init [-h] [--template {anthropic,basic,langgraph,openai,rag}]
+                      [--agent-file AGENT_FILE] [--cases-file CASES_FILE] [--force]
 
 Set up a project in this directory.
 
 options:
   -h, --help            show this help message and exit
+  --template {anthropic,basic,langgraph,openai,rag}
+                        basic and rag need no API key; openai, anthropic and langgraph are real
+                        agents
   --agent-file AGENT_FILE
   --cases-file CASES_FILE
   --force               overwrite files that exist
@@ -48,8 +52,8 @@ options:
                         your own agent
   --price INPUT OUTPUT  dollars per million input and output tokens for --model, if it isn't in
                         agenteval/cost.py; 0 0 if you don't track cost
-  --dataset DATASET     arithmetic, mixed, hard, rag, or the path of your own .jsonl file;
-                        default: arithmetic for mock, mixed for gemini and groq
+  --dataset DATASET     arithmetic, mixed, hard, extended, rag, or the path of your own .jsonl
+                        file; default: arithmetic for mock, mixed for gemini and groq
   --cases CASES         size of the arithmetic dataset
   --attempts ATTEMPTS
   --concurrency CONCURRENCY
@@ -371,16 +375,19 @@ options:
 Import traces your agent already recorded, to score them.
 
 ```
-usage: agenteval import [-h] [--name NAME] [--model MODEL] [--cases-out CASES_OUT] [--db DB]
+usage: agenteval import [-h] [--format {auto,jsonl,otlp}] [--name NAME] [--model MODEL]
+                        [--cases-out CASES_OUT] [--db DB]
                         traces
 
 Import recorded traces as an experiment.
 
 positional arguments:
-  traces                JSONL file, one record per answer
+  traces                JSONL records, or OpenTelemetry traces as OTLP JSON
 
 options:
   -h, --help            show this help message and exit
+  --format {auto,jsonl,otlp}
+                        otlp: OpenTelemetry / OpenInference traces, one trace per trial
   --name NAME           default: the file's name
   --model MODEL         the model that answered, for reports
   --cases-out CASES_OUT

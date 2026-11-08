@@ -148,7 +148,7 @@ async def aexecute(
         storage.finish_experiment(conn, experiment_id, experiment)
     else:
         experiment = new_experiment(plan, name)
-        experiment_id = storage.start_experiment(conn, experiment)
+        experiment_id = storage.start_experiment(conn, experiment, plan.cases)
         done = set()
 
     cases = {case.id: case for case in plan.cases}

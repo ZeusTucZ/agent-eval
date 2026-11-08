@@ -82,11 +82,12 @@ LangChain and LangGraph agents need one callback. The same works from the comman
 | | |
 |---|---|
 | **Run** | your agent, or built-in Groq, Gemini and fault-injecting mock agents; `--sample`, `--max-cost`, `--resume`, `--redact` |
-| **Score** | exact match, tool selection / arguments / execution, tool faithfulness, retrieval recall, forbidden text, your own scorers, and an LLM judge (correctness, groundedness, answer and context relevance, your own rubrics) |
-| **Datasets** | your JSONL file, cases generated from your documents (`agenteval generate`), or built-in `mixed`, `hard` (55 cases, 10 categories) and `rag` (45 cases over a document corpus) |
-| **Read** | reports as text, JSON, Markdown, HTML and CSV; a local dashboard to browse, compare and label |
-| **Decide** | `compare`, `power`, `gate`, and a GitHub Action |
-| **Bring data** | import recorded traces or Ragas samples; export to Ragas |
+| **Connect** | a function with `llm_call` and `tool`, `wrap_openai`, `wrap_anthropic`, LangChain/LangGraph callbacks; `agenteval init --template` for each; a response cache to re-run for free |
+| **Score** | exact match, tool selection / arguments / execution, trajectory order, step efficiency, repeated calls, tool faithfulness, retrieval recall, forbidden text, your own scorers, and an LLM judge (correctness, groundedness, answer and context relevance, your own rubrics) |
+| **Datasets** | your JSONL file (single questions or multi-turn conversations), cases generated from your documents (`agenteval generate`), or built-in `mixed`, `hard` (55 cases), `extended` (200 cases) and `rag` (45 cases over a document corpus) |
+| **Read** | reports as text, JSON, Markdown, HTML and CSV; a local dashboard to browse, compare, label and follow trends |
+| **Decide** | `compare`, `power`, `gate`, a GitHub Action, and `results.check()` in pytest |
+| **Bring data** | import recorded traces, OpenTelemetry (OpenInference or GenAI) spans or Ragas samples; export to Ragas |
 
 ## Documentation
 
@@ -99,8 +100,8 @@ cost and privacy, and the full command-line and Python reference. The same pages
 
 The API runs at https://agent-eval-co10.onrender.com (Render's free tier: the first request
 after a while can take about a minute to wake it up), with the dashboard deployed alongside it
-as a static site. Its database lives on the service's ephemeral disk, so it empties on each
-redeploy.
+as a static site. Its database lives on the service's ephemeral disk, so each redeploy starts
+again from three example runs of the mock agent.
 
 ## Developing
 

@@ -20,6 +20,7 @@ const DATASETS: Record<Dataset, string> = {
   arithmetic: "Arithmetic: checks the harness itself",
   mixed: "Mixed: 16 easy questions",
   hard: "Hard: 55 questions in 10 categories",
+  extended: "Extended: 200 questions, for comparisons that catch smaller drops",
   rag: "RAG: 45 questions over company documents",
 };
 
@@ -31,7 +32,7 @@ const MODELS: Record<Agent, string[]> = {
 };
 
 function datasetsFor(agent: Agent): Dataset[] {
-  return agent === "mock" ? ["arithmetic"] : ["mixed", "hard", "rag"];
+  return agent === "mock" ? ["arithmetic"] : ["mixed", "hard", "extended", "rag"];
 }
 
 interface Props {

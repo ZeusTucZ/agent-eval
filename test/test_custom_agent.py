@@ -40,7 +40,8 @@ def test_model_and_tool_calls_become_spans_and_scores():
     assert (add_span.kind, add_span.name, add_span.status) == ("tool", "add", "success")
     assert json.loads(add_span.input) == {"a": 2, "b": 3} and add_span.output == "5"
     assert scores == {"exact_match": 1.0, "tool_selection": 1.0, "tool_arguments_valid": 1.0,
-                      "tool_execution": 1.0, "tool_faithfulness": 1.0}
+                      "tool_execution": 1.0, "tool_faithfulness": 1.0, "step_efficiency": 1.0,
+                      "redundant_calls": 1.0}
 
 def test_llm_call_defaults_to_the_runs_model_and_async_tools_work():
     async def async_add(a: int, b: int) -> int:

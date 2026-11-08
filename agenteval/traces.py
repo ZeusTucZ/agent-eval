@@ -28,7 +28,7 @@ from typing import Any
 from agenteval import storage
 from agenteval.cost import PRICES
 from agenteval.models import AgentConfig, EvaluationCase, Experiment, Price, Span, Trial, dataset_version
-from agenteval.sample_data import dataset_by_name
+from agenteval.sample_data import cases_for
 from agenteval.scorers import DEFAULT_SCORERS, score_trials
 from agenteval.tracer import clip
 
@@ -84,16 +84,24 @@ def parse_record(record: dict, number: int) -> tuple[EvaluationCase, Trial]:
     return case, trial
 
 def import_traces(conn, path: Path, name: str, model: str, cases_out: Path,
-                  prices: dict[str, Price] | None = None) -> int:
+                  prices: dict[str, Price] | None = None, fmt: str = "auto") -> int:
+    """fmt: "jsonl" (agenteval or Ragas records), "otlp" (OpenTelemetry JSON), or "auto"."""
+    from agenteval.otel import is_otlp, records_from_otlp
+
     records = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        if line.strip():
-            try:
-                records.append(parse_record(json.loads(line), len(records) + 1))
-            except (ValueError, TypeError) as error:
-                raise ValueError(f"{path}, line {number}: {error}") from None
+    if fmt == "otlp" or (fmt == "auto" and is_otlp(path)):
+        for number, record in enumerate(records_from_otlp(path), start=1):
+            records.append(parse_record(record, number))
+    else:
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if line.strip():
+                try:
+                    records.append(parse_record(json.loads(line), len(records) + 1))
+                except (ValueError, TypeError) as error:
+                    raise ValueError(f"{path}, line {number}: {error}") from None
     if not records:
-        raise ValueError(f"{path} has no records")
+        raise ValueError(f"{path} has no records (for OpenTelemetry traces: no trace had a root span "
+                         "with input.value or agenteval.input)")
 
     # One case per distinct question, so repeated attempts at the same question pair up.
     cases: dict[int, EvaluationCase] = {}
@@ -121,12 +129,13 @@ def import_traces(conn, path: Path, name: str, model: str, cases_out: Path,
         attempts=max(trial.attempt for trial in trials), prices=all_prices, created_at=datetime.now(UTC),
         planned_trials=len(trials),
     )
-    return storage.save_experiment(conn, experiment, trials, score_trials(case_list, trials, DEFAULT_SCORERS))
+    return storage.save_experiment(conn, experiment, trials, score_trials(case_list, trials, DEFAULT_SCORERS),
+                                   case_list)
 
 def export_records(experiment: Experiment, trials: list[Trial], cases: list[EvaluationCase] | None,
                    fmt: str) -> list[dict]:
     by_case = {case.id: case for case in cases or []}
-    records = []
+    records: list[dict[str, Any]] = []
     for trial in trials:
         case = by_case.get(trial.case_id)
         tool_outputs = [span.output for span in trial.spans if span.kind == "tool" and span.output]
@@ -154,7 +163,9 @@ def export_records(experiment: Experiment, trials: list[Trial], cases: list[Eval
 
 def main_import(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="agenteval import", description="Import recorded traces as an experiment.")
-    parser.add_argument("traces", type=Path, help="JSONL file, one record per answer")
+    parser.add_argument("traces", type=Path, help="JSONL records, or OpenTelemetry traces as OTLP JSON")
+    parser.add_argument("--format", choices=["auto", "jsonl", "otlp"], default="auto",
+                        help="otlp: OpenTelemetry / OpenInference traces, one trace per trial")
     parser.add_argument("--name", help="default: the file's name")
     parser.add_argument("--model", default="imported", help="the model that answered, for reports")
     parser.add_argument("--cases-out", type=Path, help="where to write the questions; default: next to the traces")
@@ -164,7 +175,7 @@ def main_import(argv: list[str] | None = None) -> None:
     cases_out = args.cases_out or args.traces.with_name(args.traces.stem + ".cases.jsonl")
     try:
         experiment_id = import_traces(storage.connect(args.db), args.traces, args.name or args.traces.stem,
-                                      args.model, cases_out)
+                                      args.model, cases_out, fmt=args.format)
     except (OSError, ValueError) as error:
         raise SystemExit(str(error)) from None
     print(f"Imported {args.traces} as experiment {experiment_id} (questions in {cases_out}).\n"
@@ -185,10 +196,7 @@ def main_export(argv: list[str] | None = None) -> None:
         experiment = storage.load_experiment(conn, args.experiment_id)
     except LookupError as error:
         raise SystemExit(str(error)) from None
-    try:
-        cases = dataset_by_name(experiment.dataset_name)
-    except (ValueError, OSError):
-        cases = None
+    cases = cases_for(conn, experiment)
     records = export_records(experiment, storage.load_trials(conn, args.experiment_id), cases, args.format)
     args.output.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records), encoding="utf-8")
     print(f"Wrote {len(records)} {args.format} records to {args.output}")

@@ -21,6 +21,16 @@ Each rung fails for a different reason, so each has its own score:
 2. **`tool_arguments_valid`**: every call named a real tool with valid arguments.
 3. **`tool_execution`**: every call with valid arguments ran without an error.
 
+And how the agent got there:
+
+- **`trajectory_order`**: the tools in `expected_trajectory` were called in that order.
+  Other calls in between are allowed; the order of the expected ones isn't negotiable.
+- **`step_efficiency`**: calls needed over calls made, at most 1. "Needed" is
+  `max_tool_calls`, else the length of `expected_trajectory` or `expected_tools`. An agent
+  that takes 6 calls for a 3-call task scores 0.5.
+- **`redundant_calls`**: fails when the same tool is called with the same arguments after
+  it already worked. Retrying a call that failed is fine.
+
 ## Faithfulness and retrieval
 
 - **`tool_faithfulness`**: every number in the answer, or its text, appears in a tool

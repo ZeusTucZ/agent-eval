@@ -1,6 +1,7 @@
 import re
 from contextlib import contextmanager
 from time import perf_counter_ns
+from typing import Literal
 
 from agenteval.models import Span
 
@@ -15,9 +16,10 @@ class Tracer:
     def __init__(self, trial_id: int):
         self.trial_id = trial_id
         self.spans: list[Span] = []
+        self.transcript: list[dict[str, str]] | None = None  # set by agents that hold a conversation
 
     @contextmanager
-    def span(self, kind: str, name: str):
+    def span(self, kind: Literal["llm", "tool"], name: str):
         start = perf_counter_ns()
 
         span = Span(

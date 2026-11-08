@@ -25,7 +25,6 @@ from agenteval.compare import (
     is_infrastructure_failure,
     load,
 )
-from agenteval.sample_data import dataset_by_name
 
 PASS = 0
 BLOCK = 1
@@ -163,7 +162,7 @@ def run_gate(baseline_path: str, candidate_path: str, policy: Policy | None = No
     a, b = _load_latest(baseline_path), _load_latest(candidate_path)
 
     missing = [label for label, data in (("baseline", a), ("candidate", b)) if data is None]
-    if missing:
+    if missing or a is None or b is None:
         decision = Decision(CANNOT_JUDGE, [f"no saved experiment for: {', '.join(missing)}"])
         return decision, format_markdown(None, None, None, decision), "\n".join(decision.reasons)
 
@@ -171,7 +170,7 @@ def run_gate(baseline_path: str, candidate_path: str, policy: Policy | None = No
     result = None
     if not fairness.errors:
         try:
-            result = compare_experiments(a, b, dataset_by_name(a.experiment.dataset_name))
+            result = compare_experiments(a, b, a.case_list())
         except ValueError as error:
             fairness.errors.append(str(error))
 
@@ -191,7 +190,7 @@ def main(argv: list[str] | None = None) -> None:
                         help="block when the change's pass rate is below this, e.g. 0.85")
     args = parser.parse_args(argv)
 
-    sys.stdout.reconfigure(errors="replace")
+    sys.stdout.reconfigure(errors="replace")  # type: ignore[union-attr]
 
     policy = Policy(block_inconclusive=args.block_inconclusive, min_pass_rate=args.min_pass_rate)
     decision, markdown, text = run_gate(args.baseline_db, args.candidate_db, policy)

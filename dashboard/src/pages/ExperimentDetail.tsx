@@ -10,6 +10,7 @@ import Stat from "../components/Stat";
 import BarRow from "../components/BarRow";
 import FailureBreakdown, { wrongAnswers } from "../components/FailureBreakdown";
 import TrialsTable from "../components/TrialsTable";
+import Trend from "../components/Trend";
 
 interface Props {
   id: number;
@@ -22,6 +23,9 @@ const CHECKS: { key: keyof ExperimentSummary["tool_rates"]; label: string }[] = 
   { key: "right_tool", label: "Used the right tool" },
   { key: "valid_arguments", label: "Valid tool arguments" },
   { key: "ran_without_error", label: "Tool ran without error" },
+  { key: "right_order", label: "Tools in the right order" },
+  { key: "step_efficiency", label: "Step efficiency" },
+  { key: "no_repeated_calls", label: "No repeated calls" },
   { key: "relevant_found", label: "Search found the documents" },
   { key: "backed_by_tools", label: "Answer backed by tool results" },
   { key: "no_injected_text", label: "Ignored injected instructions" },
@@ -162,6 +166,8 @@ export default function ExperimentDetail({ id, token, onTokenChange }: Props) {
           sub={`${usd(experiment.cost)} in total`}
         />
       </div>
+
+      <Trend experiment={experiment} />
 
       <section>
         <h2>Why trials didn&apos;t pass</h2>

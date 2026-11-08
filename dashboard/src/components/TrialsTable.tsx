@@ -34,8 +34,21 @@ function TrialDetail({ trial }: { trial: Trial }) {
           </div>
         </div>
       ) : null}
+      {trial.transcript && trial.transcript.length > 2 ? (
+        <div>
+          <div className="stat-label">Conversation</div>
+          <div className="conversation">
+            {trial.transcript.map((message, i) => (
+              <div key={i} className={`message ${message.role}`}>
+                <span className="muted">{message.role === "user" ? "User" : "Agent"}</span>
+                <div className="answer">{message.content}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div>
-        <div className="stat-label">Answer</div>
+        <div className="stat-label">{trial.transcript && trial.transcript.length > 2 ? "Last answer" : "Answer"}</div>
         <div className="answer">{trial.output ?? <span className="muted">No answer</span>}</div>
       </div>
       <div className="table-wrap">

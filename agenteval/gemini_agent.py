@@ -7,7 +7,7 @@ from google.genai import errors, types
 
 from agenteval.models import EvaluationCase
 from agenteval.retry import RateLimiter, RetryPolicy, call_llm_with_retries
-from agenteval.runner import EmptyOutput, MaxStepsExceeded, OutputTruncated, QuotaExhausted
+from agenteval.runner import AgentFailure, EmptyOutput, MaxStepsExceeded, OutputTruncated, QuotaExhausted
 from agenteval.tools import DEFAULT_TOOLS, SYSTEM_PROMPT, ToolRegistry
 from agenteval.tracer import Tracer
 
@@ -99,6 +99,9 @@ class GeminiAgent:
         )
 
     async def run(self, case: EvaluationCase, attempt: int, tracer: Tracer) -> str:
+        if case.turns:
+            raise AgentFailure("the built-in agents answer single questions; evaluate conversations with your "
+                               "own agent (a function taking `messages`)")
         if self.quota_exhausted:
             raise QuotaExhausted("skipped: the daily quota ran out earlier in this experiment")
 
@@ -140,11 +143,12 @@ class GeminiAgent:
                     raise EmptyOutput("the model finished without saying anything")
                 return answer
 
-            contents.append(response.candidates[0].content)
+            if response.candidates and response.candidates[0].content:
+                contents.append(response.candidates[0].content)
             contents.append(types.Content(role="user", parts=[
                 types.Part.from_function_response(
-                    name=call.name,
-                    response=self._call_tool(call.name, dict(call.args or {}), tracer),
+                    name=call.name or "",
+                    response=self._call_tool(call.name or "", dict(call.args or {}), tracer),
                 )
                 for call in function_calls
             ]))

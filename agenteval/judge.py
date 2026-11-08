@@ -28,7 +28,7 @@ from agenteval.cost import PRICES, span_cost
 from agenteval.models import EvaluationCase, Price, Score, Trial
 from agenteval.openai_agent import PROVIDERS, classify_openai_error, openai_retry_after
 from agenteval.retry import RateLimiter, RetryPolicy, call_llm_with_retries
-from agenteval.sample_data import dataset_by_name
+from agenteval.sample_data import cases_for
 from agenteval.scorers import ABSTAINED, _normalize
 from agenteval.tracer import Tracer
 
@@ -150,7 +150,12 @@ def applies(rubric: Rubric, trial: Trial) -> bool:
     return not (rubric.uses_sources and _normalize(trial.output) == ABSTAINED)
 
 def build_prompt(rubric: Rubric, case: EvaluationCase, trial: Trial) -> str:
-    parts = [f"<question>\n{case.input}\n</question>"]
+    if trial.transcript:
+        conversation = "\n".join(f"{m['role']}: {m['content']}" for m in trial.transcript[:-1])
+        parts = [f"<conversation>\n{conversation}\n</conversation>",
+                 f"<question>\n{case.input}\n</question>"]
+    else:
+        parts = [f"<question>\n{case.input}\n</question>"]
     if rubric.uses_expected:
         parts.append(f"<expected>\n{case.expected_output}\n</expected>")
     if rubric.uses_sources:
@@ -295,7 +300,7 @@ def main(argv: list[str] | None = None) -> None:
     if key_variable and not os.environ.get(key_variable):
         raise SystemExit(f"Set the {key_variable} environment variable first.")
 
-    sys.stdout.reconfigure(errors="replace")
+    sys.stdout.reconfigure(errors="replace")  # type: ignore[union-attr]
     conn = storage.connect(args.db)
     experiment = storage.load_experiment(conn, args.experiment_id)
     trials = storage.load_trials(conn, args.experiment_id)
@@ -304,7 +309,10 @@ def main(argv: list[str] | None = None) -> None:
 
     judge = Judge(model=args.model, provider=args.provider, requests_per_minute=args.rpm or None,
                   base_url=args.base_url, api_key_env=args.api_key_env, cache=None if args.no_cache else conn)
-    scores = asyncio.run(judge_trials(judge, rubric, dataset_by_name(experiment.dataset_name), trials,
+    cases = cases_for(conn, experiment)
+    if cases is None:
+        raise SystemExit(f"Can't find the cases of experiment {args.experiment_id} ({experiment.dataset_name}).")
+    scores = asyncio.run(judge_trials(judge, rubric, cases, trials,
                                       concurrency=args.concurrency))
     storage.replace_scores(conn, args.experiment_id, scores, [f"judge_{rubric.name}"])
 

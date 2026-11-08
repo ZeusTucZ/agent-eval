@@ -7,7 +7,7 @@ import openai
 
 from agenteval.models import EvaluationCase
 from agenteval.retry import RateLimiter, RetryPolicy, call_llm_with_retries
-from agenteval.runner import EmptyOutput, InvalidModelOutput, MaxStepsExceeded, OutputTruncated, QuotaExhausted
+from agenteval.runner import AgentFailure, EmptyOutput, InvalidModelOutput, MaxStepsExceeded, OutputTruncated, QuotaExhausted
 from agenteval.tools import DEFAULT_TOOLS, SYSTEM_PROMPT, ToolRegistry
 from agenteval.tracer import Tracer
 
@@ -97,6 +97,9 @@ class OpenAICompatibleAgent:
         ]
 
     async def run(self, case: EvaluationCase, attempt: int, tracer: Tracer) -> str:
+        if case.turns:
+            raise AgentFailure("the built-in agents answer single questions; evaluate conversations with your "
+                               "own agent (a function taking `messages`)")
         if self.quota_exhausted:
             raise QuotaExhausted("skipped: the daily quota ran out earlier in this experiment")
 
@@ -109,7 +112,8 @@ class OpenAICompatibleAgent:
 
         async def generate() -> tuple[Any, int, int]:
             response = await self.client.chat.completions.create(
-                model=self.model, messages=messages, tools=tools, temperature=self.temperature,
+                model=self.model, messages=messages, tools=tools,  # type: ignore[arg-type]
+                temperature=self.temperature,
             )
             usage = response.usage
             return response, (usage and usage.prompt_tokens) or 0, (usage and usage.completion_tokens) or 0

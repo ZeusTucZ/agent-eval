@@ -13,6 +13,7 @@
 See https://zeustucz.github.io/agent-eval/ for the guide.
 """
 from agenteval.evaluation import Results, aevaluate, evaluate
+from agenteval.integrations.anthropic import wrap_anthropic
 from agenteval.integrations.openai import wrap_openai
 from agenteval.models import EvaluationCase, Score, Span, Trial
 from agenteval.scorers import as_scorer
@@ -22,5 +23,5 @@ Case = EvaluationCase  # shorter, for building cases in code
 
 __all__ = [
     "Case", "EvaluationCase", "Results", "Score", "Span", "ToolArgumentError", "Trial",
-    "aevaluate", "as_scorer", "evaluate", "llm_call", "tool", "wrap_openai",
+    "aevaluate", "as_scorer", "evaluate", "llm_call", "tool", "wrap_anthropic", "wrap_openai",
 ]

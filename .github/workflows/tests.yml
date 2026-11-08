@@ -49,6 +49,22 @@ jobs:
       - name: Lint
         run: ruff check --output-format github .
 
+  types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # With the optional SDKs installed, so calls into them are checked too.
+      - name: Install
+        run: pip install -e ".[all]" "mypy>=1.11"
+
+      - name: Type check
+        run: mypy
+
   dashboard:
     runs-on: ubuntu-latest
     defaults:

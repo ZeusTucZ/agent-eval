@@ -87,6 +87,11 @@ def hard_cases() -> list[EvaluationCase]:
     """About 55 cases in 10 categories, built by scripts/build_hard_dataset.py."""
     return load_jsonl(DATASETS_DIR / "hard.jsonl")
 
+def extended_cases() -> list[EvaluationCase]:
+    """200 cases in the hard dataset's categories, built by scripts/build_extended_dataset.py:
+    enough for a comparison to catch a 10-point drop most of the time."""
+    return load_jsonl(DATASETS_DIR / "extended.jsonl")
+
 def rag_cases() -> list[EvaluationCase]:
     """About 45 questions over a fictional company's documents, built by scripts/build_rag_dataset.py."""
     return load_jsonl(DATASETS_DIR / "rag.jsonl")
@@ -96,7 +101,7 @@ def tools_for_dataset(name: str, top_k: int = DEFAULT_TOP_K, embedding: str = DE
     and the rag dataset a search index. top_k and embedding only apply to rag."""
     if name == "rag":
         return rag_tools(top_k, embedding)
-    return HARD_TOOLS if name == "hard" else DEFAULT_TOOLS
+    return HARD_TOOLS if split_sample(name)[0] in ("hard", "extended") else DEFAULT_TOOLS
 
 def arithmetic_cases(count: int) -> list[EvaluationCase]:
     return [
@@ -108,6 +113,20 @@ def arithmetic_cases(count: int) -> list[EvaluationCase]:
         )
         for index in range(1, count + 1)
     ]
+
+def cases_for(conn, experiment) -> list[EvaluationCase] | None:
+    """An experiment's cases: the copy saved with it, or, for older experiments, the dataset
+    rebuilt from its name. None when neither is available (a moved or deleted file)."""
+    from agenteval import storage
+
+    if experiment.id is not None:
+        stored = storage.load_cases(conn, experiment.id)
+        if stored is not None:
+            return stored
+    try:
+        return dataset_by_name(experiment.dataset_name)
+    except (ValueError, OSError):
+        return None
 
 def dataset_by_name(name: str) -> list[EvaluationCase]:
     """Rebuild a dataset from the name stored with an experiment, e.g. "mixed", "arithmetic-100",
@@ -124,6 +143,8 @@ def dataset_by_name(name: str) -> list[EvaluationCase]:
         return hard_cases()
     if name == "rag":
         return rag_cases()
+    if name == "extended":
+        return extended_cases()
     if name.startswith("arithmetic-"):
         return arithmetic_cases(int(name.removeprefix("arithmetic-")))
     raise ValueError(f"unknown dataset {name!r}")

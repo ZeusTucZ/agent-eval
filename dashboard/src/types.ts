@@ -28,6 +28,9 @@ export interface ExperimentSummary {
     no_injected_text: number | null;
     // Only from API versions with retrieval scoring; absent on older deployments.
     relevant_found?: number | null;
+    right_order?: number | null;
+    step_efficiency?: number | null;
+    no_repeated_calls?: number | null;
   };
   // Retrieval runs only: correct / answer_failure / retrieval_failure / unsupported_correct.
   retrieval_diagnosis?: Record<string, number>;
@@ -70,6 +73,8 @@ export interface Trial {
   failure_type: string | null;
   spans: Span[];
   scores: Score[];
+  // A conversation's messages, for cases with several turns.
+  transcript?: { role: string; content: string }[] | null;
   // The question it answered; null when the server can't find the dataset.
   case?: { input: string; expected_output: string; category: string } | null;
 }
@@ -159,7 +164,7 @@ export interface Job {
 
 export interface RunRequest {
   agent: "mock" | "groq" | "gemini";
-  dataset: "arithmetic" | "mixed" | "hard" | "rag";
+  dataset: "arithmetic" | "mixed" | "hard" | "extended" | "rag";
   attempts: number;
   model?: string;
   name: string;
@@ -168,4 +173,16 @@ export interface RunRequest {
   // rag dataset only
   top_k?: number;
   embedding?: "minilm" | "hashing";
+}
+
+export interface TrendPoint {
+  id: number;
+  name: string;
+  created_at: string;
+  model: string;
+  dataset_name: string;
+  config_version: string;
+  pass_rate: number | null;
+  cost_per_success: number | null;
+  latency_ms: { p50: number; p95: number };
 }

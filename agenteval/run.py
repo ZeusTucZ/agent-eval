@@ -2,6 +2,7 @@ import argparse
 import asyncio
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 from agenteval import storage
 from agenteval.cost import PRICES, with_unpriced_models
@@ -122,7 +123,7 @@ BUILDERS = {"mock": build_mock, "gemini": build_gemini, "groq": build_groq}
 # Per-agent defaults for options left unset. Real agents' timeouts must outlast their retry
 # schedule (up to 5 waits of 60 s), or a trial is cut off mid-retry; that is what happened
 # to experiment 3 with an older 120 s default.
-AGENT_DEFAULTS = {
+AGENT_DEFAULTS: dict[str, dict[str, Any]] = {
     "mock": {"model": "mock-llm", "dataset": "arithmetic", "concurrency": 20, "timeout": 2.0, "rpm": 0},
     "gemini": {"model": "gemini-2.5-flash", "dataset": "mixed", "concurrency": 2, "timeout": 360.0, "rpm": 8},
     "groq": {"model": "openai/gpt-oss-20b", "dataset": "mixed", "concurrency": 4, "timeout": 360.0, "rpm": 25},
@@ -130,7 +131,7 @@ AGENT_DEFAULTS = {
     "custom": {"model": None, "dataset": None, "concurrency": 4, "timeout": 360.0, "rpm": 0},
 }
 
-BUILT_IN_DATASETS = ("arithmetic", "mixed", "hard", "rag")
+BUILT_IN_DATASETS = ("arithmetic", "mixed", "hard", "extended", "rag")
 
 def load_dataset(args) -> tuple[str, list[EvaluationCase]]:
     if args.dataset == "arithmetic":
@@ -167,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="dollars per million input and output tokens for --model, if it isn't in "
                              "agenteval/cost.py; 0 0 if you don't track cost")
     parser.add_argument("--dataset",
-                        help="arithmetic, mixed, hard, rag, or the path of your own .jsonl file; "
+                        help="arithmetic, mixed, hard, extended, rag, or the path of your own .jsonl file; "
                              "default: arithmetic for mock, mixed for gemini and groq")
     parser.add_argument("--cases", type=int, default=100, help="size of the arithmetic dataset")
     parser.add_argument("--attempts", type=int, default=3)

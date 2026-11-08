@@ -39,6 +39,7 @@ format = "markdown"
 | `DATABASE_PATH` | the API server's database |
 | `API_TOKEN` | the API server's token for changes (`agenteval ui` makes one up) |
 | `READ_ONLY` | `1` refuses every change on the API server |
+| `DEMO_SEED` | `1` fills an empty database with example runs when the API server starts |
 | `CORS_ORIGINS` | sites allowed to call the API server from a browser |
 | `REQUESTS_PER_CLIENT_PER_MINUTE` | the API server's per-client limit (120; 0 for none) |
 | `AGENTEVAL_STATIC_DIR` | a built dashboard for the API server to serve at `/` |
