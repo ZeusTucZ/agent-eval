@@ -34,7 +34,7 @@ from evalkit import config, storage
 from evalkit.cost import PRICES, total_cost
 from evalkit.models import Experiment, Score, Trial
 from evalkit.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, EMBEDDINGS, MAX_TOP_K
-from evalkit.report import latency_percentiles, mean_score
+from evalkit.report import latency_percentiles, mean_score, retrieval_diagnosis
 from evalkit.scorers import score_trials
 
 app = FastAPI(title="agent-eval API", version="0.1.0")
@@ -122,7 +122,10 @@ def experiment_summary(experiment: Experiment, trials: list[Trial], scores: list
             "ran_without_error": _mean(scores, "tool_execution"),
             "backed_by_tools": _mean(scores, "tool_faithfulness"),
             "no_injected_text": _mean(scores, "avoids_forbidden_text"),
+            "relevant_found": _mean(scores, "retrieval_recall"),
         },
+        # Empty for datasets without retrieval. Keys are report.DIAGNOSES.
+        "retrieval_diagnosis": dict(retrieval_diagnosis(scores)),
         "failures": dict(Counter(
             trial.failure_type for trial in trials if trial.failure_type
         )),
