@@ -22,6 +22,11 @@ class EvaluationCase(BaseModel):
     # Retrieval cases: the ids of the documents the answer is in, all of which a search should
     # find. [] means no document has the answer; None means the case involves no retrieval.
     relevant_docs: list[str] | None = None
+    # The tools the agent should use, in this order (other calls may come in between):
+    # ["search", "calculator"] means search first, then calculate. For trajectory_order.
+    expected_trajectory: list[str] | None = None
+    # The most tool calls a good run needs; more counts against step_efficiency.
+    max_tool_calls: int | None = None
 
     @property
     def required_tools(self) -> list[str] | None:
@@ -116,7 +121,7 @@ class Experiment(BaseModel):
 # Fields added to EvaluationCase after dataset versions were first stored. Left out of the
 # hash while unset, so adding a field doesn't make every saved experiment look like it ran
 # on a different dataset (compare and the gate refuse to compare those).
-FIELDS_ADDED_LATER = {"relevant_docs"}
+FIELDS_ADDED_LATER = {"relevant_docs", "expected_trajectory", "max_tool_calls"}
 
 def dataset_version(cases: list[EvaluationCase]) -> str:
     """Content hash of a dataset: if any case changes, runs are no longer comparable."""

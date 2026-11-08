@@ -371,16 +371,19 @@ options:
 Import traces your agent already recorded, to score them.
 
 ```
-usage: agenteval import [-h] [--name NAME] [--model MODEL] [--cases-out CASES_OUT] [--db DB]
+usage: agenteval import [-h] [--format {auto,jsonl,otlp}] [--name NAME] [--model MODEL]
+                        [--cases-out CASES_OUT] [--db DB]
                         traces
 
 Import recorded traces as an experiment.
 
 positional arguments:
-  traces                JSONL file, one record per answer
+  traces                JSONL records, or OpenTelemetry traces as OTLP JSON
 
 options:
   -h, --help            show this help message and exit
+  --format {auto,jsonl,otlp}
+                        otlp: OpenTelemetry / OpenInference traces, one trace per trial
   --name NAME           default: the file's name
   --model MODEL         the model that answered, for reports
   --cases-out CASES_OUT

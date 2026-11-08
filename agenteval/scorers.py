@@ -98,6 +98,52 @@ def tool_execution(case: EvaluationCase, trial: Trial) -> Score | None:
     return Score(trial_id=trial.id, scorer="tool_execution", value=0.0 if failed else 1.0,
                  reasoning=f"failed: {failed}" if failed else f"{len(spans)} succeeded")
 
+# --- The trajectory: how the agent got there, not only where it ended up ---
+
+def _is_subsequence(wanted: list[str], called: list[str]) -> bool:
+    remaining = iter(called)
+    return all(name in remaining for name in wanted)
+
+def trajectory_order(case: EvaluationCase, trial: Trial) -> Score | None:
+    """Did the agent use the case's expected tools in the expected order? Other calls may come
+    in between: what matters is, say, searching before calculating with what was found."""
+    if not case.expected_trajectory or not _model_responded(trial):
+        return None
+    called = [span.name for span in _tool_spans(trial)]
+    passed = _is_subsequence(case.expected_trajectory, called)
+    return Score(trial_id=trial.id, scorer="trajectory_order", value=1.0 if passed else 0.0,
+                 reasoning=f"expected {case.expected_trajectory} in order, called {called}")
+
+def step_efficiency(case: EvaluationCase, trial: Trial) -> Score | None:
+    """How close the number of tool calls is to what the case needs: needed / made, at most 1.
+    Extra calls cost latency and money even when the answer ends up right."""
+    needed = case.max_tool_calls
+    if needed is None:
+        needed = len(case.expected_trajectory or case.required_tools or [])
+    calls = len(_tool_spans(trial))
+    if needed == 0 or calls == 0 or not _model_responded(trial):
+        return None  # no reference, or nothing called (tool_selection judges that)
+    value = min(1.0, needed / calls)
+    return Score(trial_id=trial.id, scorer="step_efficiency", value=value,
+                 reasoning=f"{calls} tool calls where {needed} {'is' if needed == 1 else 'are'} enough")
+
+def redundant_calls(case: EvaluationCase, trial: Trial) -> Score | None:
+    """Did the agent repeat a call that had already worked, with the same arguments? Trying
+    again after an error is fine; asking the same question twice is waste."""
+    spans = _tool_spans(trial)
+    if not spans or all(span.input is None for span in spans):
+        return None  # nothing called, or an agent that doesn't record arguments
+    succeeded: set[tuple[str, str | None]] = set()
+    repeated = []
+    for span in spans:
+        key = (span.name, span.input)
+        if key in succeeded:
+            repeated.append(span.name)
+        if span.status == "success":
+            succeeded.add(key)
+    return Score(trial_id=trial.id, scorer="redundant_calls", value=0.0 if repeated else 1.0,
+                 reasoning=f"repeated: {repeated}" if repeated else f"{len(spans)} calls, none repeated")
+
 # --- Hallucination: is the answer backed by what the tools actually returned? ---
 
 ABSTAINED = "unknown"
@@ -114,10 +160,12 @@ def tool_faithfulness(case: EvaluationCase, trial: Trial) -> Score | None:
     and still be wrong, and a right answer worked out in the model's head fails here.
     """
     required = case.required_tools
-    if not required or trial.output is None or _normalize(trial.output) == ABSTAINED:
+    if required == [] or trial.output is None or _normalize(trial.output) == ABSTAINED:
         return None  # no tool was needed, nothing came back, or the agent claimed nothing
 
     spans = _tool_spans(trial)
+    if required is None and not spans:
+        return None  # tools not expected and none used: nothing to check the answer against
     if spans and all(span.input is None for span in spans):
         return None  # this agent doesn't record tool data, as with the mock
 
@@ -181,8 +229,8 @@ def avoids_forbidden_text(case: EvaluationCase, trial: Trial) -> Score | None:
                  reasoning=f"output contains {leaked}" if leaked else "no forbidden text")
 
 DEFAULT_SCORERS: list[Scorer] = [
-    exact_match, tool_selection, tool_arguments_valid, tool_execution, tool_faithfulness, retrieval_recall,
-    avoids_forbidden_text,
+    exact_match, tool_selection, tool_arguments_valid, tool_execution, trajectory_order, step_efficiency,
+    redundant_calls, tool_faithfulness, retrieval_recall, avoids_forbidden_text,
 ]
 
 # What each built-in scorer calls its scores: the function's name.

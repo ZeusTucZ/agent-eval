@@ -47,6 +47,7 @@ MAX_RECORDED_TOOL_OUTPUT = 4000
 class _Trial:
     tracer: Tracer
     model: str  # the run's --model, used when llm_call isn't given one
+    attempt: int = 1  # so a response cache keeps attempts at the same question independent
 
 _active: ContextVar[_Trial | None] = ContextVar("agenteval_trial", default=None)
 
@@ -109,7 +110,7 @@ class FunctionAgent:
 
     async def run(self, case: EvaluationCase, attempt: int, tracer: Tracer) -> str:
         argument = case if self.wants_case else case.input
-        token = _active.set(_Trial(tracer, self.model))
+        token = _active.set(_Trial(tracer, self.model, attempt))
         try:
             if inspect.iscoroutinefunction(self.function):
                 answer = await self.function(argument)

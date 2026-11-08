@@ -28,6 +28,9 @@ export interface ExperimentSummary {
     no_injected_text: number | null;
     // Only from API versions with retrieval scoring; absent on older deployments.
     relevant_found?: number | null;
+    right_order?: number | null;
+    step_efficiency?: number | null;
+    no_repeated_calls?: number | null;
   };
   // Retrieval runs only: correct / answer_failure / retrieval_failure / unsupported_correct.
   retrieval_diagnosis?: Record<string, number>;

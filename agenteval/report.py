@@ -105,7 +105,7 @@ def retrieval_diagnosis(scores: list[Score]) -> Counter[str]:
 # is listed under "Other scores".
 BUILT_IN_SCORERS = {
     "exact_match", "tool_selection", "tool_arguments_valid", "tool_execution", "tool_faithfulness",
-    "retrieval_recall", "avoids_forbidden_text",
+    "retrieval_recall", "avoids_forbidden_text", "trajectory_order", "step_efficiency", "redundant_calls",
 }
 
 def other_scores(scores: list[Score]) -> dict[str, tuple[float, int]]:
@@ -160,8 +160,9 @@ def summary_data(
         "cost_per_success": cost / successes if successes else None,
         "checks": {
             name: mean_or_none(name)
-            for name in ("tool_selection", "tool_arguments_valid", "tool_execution", "tool_faithfulness",
-                         "retrieval_recall", "avoids_forbidden_text")
+            for name in ("tool_selection", "tool_arguments_valid", "tool_execution", "trajectory_order",
+                         "step_efficiency", "redundant_calls", "tool_faithfulness", "retrieval_recall",
+                         "avoids_forbidden_text")
         },
         "retrieval_diagnosis": dict(retrieval_diagnosis(scores)),
         "other_scores": {name: {"mean": mean, "trials": count} for name, (mean, count) in other_scores(scores).items()},
@@ -218,6 +219,12 @@ def summarize(
         "  " + _rate_line("ran without error", _scores_named(scores, "tool_execution")),
         "  " + _rate_line("backed by tools", _scores_named(scores, "tool_faithfulness")),
     ]
+    trajectory = [(label, _scores_named(scores, name)) for label, name in (
+        ("right order", "trajectory_order"), ("step efficiency", "step_efficiency"),
+        ("no repeated calls", "redundant_calls"))]
+    if any(found for _, found in trajectory):
+        lines.append("Trajectory:")
+        lines += ["  " + _rate_line(label, found) for label, found in trajectory if found]
     recall = _scores_named(scores, "retrieval_recall")
     if recall:
         diagnoses = retrieval_diagnosis(scores)

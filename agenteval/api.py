@@ -227,6 +227,9 @@ def experiment_summary(experiment: Experiment, trials: list[Trial], scores: list
             "backed_by_tools": _mean(scores, "tool_faithfulness"),
             "no_injected_text": _mean(scores, "avoids_forbidden_text"),
             "relevant_found": _mean(scores, "retrieval_recall"),
+            "right_order": _mean(scores, "trajectory_order"),
+            "step_efficiency": _mean(scores, "step_efficiency"),
+            "no_repeated_calls": _mean(scores, "redundant_calls"),
         },
         # Empty for datasets without retrieval. Keys are report.DIAGNOSES.
         "retrieval_diagnosis": dict(retrieval_diagnosis(scores)),
