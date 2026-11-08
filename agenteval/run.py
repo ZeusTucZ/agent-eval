@@ -270,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(str(error)) from None
     except KeyboardInterrupt:
         experiment_id = args.resume or storage.latest_experiment_id(conn)
+        storage.mark_interrupted(conn, experiment_id)
         raise SystemExit(f"\nInterrupted. Every finished trial is saved; continue with the same options and "
                          f"--resume {experiment_id}") from None
 

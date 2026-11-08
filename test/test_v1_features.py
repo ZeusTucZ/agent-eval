@@ -5,6 +5,7 @@ and the Python API. No network: fake clients and the mock agent throughout."""
 import asyncio
 import json
 import os
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -133,17 +134,29 @@ def test_an_interrupted_run_resumes_with_only_the_missing_trials(tmp_path):
     calls = 0
     original = plan.agent.run
 
-    async def crash_after_four(case, attempt, tracer):
+    hang = asyncio.Event()  # never set: the fifth trial waits until the run is cancelled
+
+    async def stall_after_four(case, attempt, tracer):
         nonlocal calls
         calls += 1
         if calls > 4:
-            raise KeyboardInterrupt
+            await hang.wait()
         return await original(case, attempt, tracer)
 
-    plan.agent.run = crash_after_four
+    plan.agent.run = stall_after_four
     plan.concurrency = 1
-    with pytest.raises(KeyboardInterrupt):
-        asyncio.run(aexecute(plan, conn, progress=False))
+    plan.timeout_s = 60
+
+    async def interrupt():
+        # Ctrl+C under asyncio.run cancels the main task (Python 3.11+); do the same.
+        task = asyncio.create_task(aexecute(plan, conn, progress=False))
+        while calls <= 4:
+            await asyncio.sleep(0.01)
+        task.cancel()
+        await task
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(interrupt())
     experiment_id = storage.latest_experiment_id(conn)
     assert storage.load_experiment(conn, experiment_id).status == "interrupted"
     assert len(storage.load_trials(conn, experiment_id)) == 4
@@ -494,8 +507,21 @@ def test_evaluate_needs_a_price():
 def test_llm_call_and_tool_are_exported_from_the_package():
     assert callable(llm_call) and callable(tool) and os.path.basename(__file__)
 
+@pytest.mark.skipif(sys.version_info[:2] != (3, 12), reason="argparse's help layout differs between Pythons")
 def test_the_cli_reference_matches_every_commands_help():
-    # Generated; if this fails, run: python scripts/build_cli_reference.py
+    # Generated with Python 3.12; if this fails, run: python scripts/build_cli_reference.py
     from scripts.build_cli_reference import OUTPUT, build
 
     assert OUTPUT.read_text(encoding="utf-8") == build()
+
+def test_a_run_left_running_is_marked_interrupted(tmp_path):
+    conn = storage.connect(tmp_path / "m.db")
+    plan = mock_plan()
+    experiment = Experiment(name="x", dataset_name="d", config=plan.config, attempts=1, prices={},
+                            created_at=datetime.now(UTC), status="running")
+    experiment_id = storage.start_experiment(conn, experiment)
+    storage.mark_interrupted(conn, experiment_id)
+    assert storage.load_experiment(conn, experiment_id).status == "interrupted"
+    done = storage.start_experiment(conn, experiment.model_copy(update={"status": "completed"}))
+    storage.mark_interrupted(conn, done)
+    assert storage.load_experiment(conn, done).status == "completed"  # a finished run is left alone

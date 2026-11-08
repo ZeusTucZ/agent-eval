@@ -1,5 +1,6 @@
 """Builds docs/reference/cli.md from each command's own --help, so the reference can't drift
-from the code. A test checks the file matches; to update it, run:
+from the code. argparse lays help out a little differently in each Python version, so build it
+with Python 3.12, which the test that checks it runs on. To update it, run:
 
     python scripts/build_cli_reference.py
 """

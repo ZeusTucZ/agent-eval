@@ -176,6 +176,13 @@ def finish_experiment(conn: sqlite3.Connection, experiment_id: int, experiment: 
         conn.execute("UPDATE experiments SET status = ?, prices_json = ? WHERE id = ?",
                      (experiment.status, _prices_json(experiment), experiment_id))
 
+def mark_interrupted(conn: sqlite3.Connection, experiment_id: int | None) -> None:
+    """For a run stopped before it could record that itself: "running" becomes "interrupted"."""
+    if experiment_id is not None:
+        with conn:
+            conn.execute("UPDATE experiments SET status = 'interrupted' WHERE id = ? AND status = 'running'",
+                         (experiment_id,))
+
 def save_experiment(
     conn: sqlite3.Connection,
     experiment: Experiment,
