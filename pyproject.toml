@@ -3,12 +3,11 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# "agenteval" and "agent-eval" are taken on PyPI, and PyPI refuses names that differ only
-# in separators, so "agenteval-kit" would collide with the existing "agentevalkit". The
-# distribution is therefore zeustucz-agenteval. You still `import agenteval` and
-# run `agenteval`.
-name = "zeustucz-agenteval"
-version = "1.0.0"
+# "agenteval" is taken on PyPI, so the distribution follows the "py" + import name convention
+# (as pyyaml installs `yaml`): pip install pyagenteval, then `import agenteval` and run
+# `agenteval`. 1.0.0 was published as zeustucz-agenteval.
+name = "pyagenteval"
+version = "1.0.1"
 description = "Run your LLM agent many times, trace every step, and find out why it fails: correctness, tool use, latency, cost, retries and regressions."
 readme = "README.md"
 license = "MIT"
@@ -36,9 +35,9 @@ gemini = ["google-genai>=1.20"]
 server = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
 # The rag dataset's search tool. Large (ChromaDB pulls in onnxruntime), so only on request.
 rag = ["chromadb>=1.5"]
-all = ["zeustucz-agenteval[gemini,server,rag]"]
+all = ["pyagenteval[gemini,server,rag]"]
 dev = [
-    "zeustucz-agenteval[all]",
+    "pyagenteval[all]",
     "pytest>=8",
     "httpx>=0.27",  # backs fastapi.testclient in test/test_api.py
     "ruff>=0.6",
