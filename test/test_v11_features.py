@@ -249,3 +249,51 @@ def test_dataset_files_accept_turns_without_input(tmp_path):
     path.write_text(json.dumps({"turns": ["hi", "what's 2+2?"], "expected_output": "4"}) + "\n")
     (case,) = load_dataset_file(path)
     assert case.input == "what's 2+2?" and case.turns == ["hi", "what's 2+2?"]
+
+# --- Checks for tests, and init templates ---
+
+def test_check_passes_or_says_exactly_what_fell_short():
+    from agenteval import evaluate
+
+    cases = [{"input": f"{n}", "expected_output": "even" if n % 2 == 0 else "odd"} for n in range(10)]
+    results = evaluate(lambda q: "even", cases, model="m", price=(0, 0), attempts=1)
+    assert results.check(min_pass_rate=0.5, max_cost=1) is results
+    with pytest.raises(AssertionError) as error:
+        results.check(min_pass_rate=0.9, min_scores={"tool_selection": 1.0}, max_failures=-1)
+    message = str(error.value)
+    assert "pass rate 50.0% is below 90.0%" in message
+    assert "tool_selection produced no scores" in message
+    assert "case 2: '1' -> 'even' (expected 'odd')" in message
+
+@pytest.mark.parametrize("template", ["basic", "rag"])
+def test_templates_that_need_no_key_run_out_of_the_box(template, tmp_path, monkeypatch, capsys):
+    from agenteval import storage
+    from agenteval.cli import main as cli
+
+    import sys
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    # Each template writes its own my_agent.py: don't reuse another test's cached module.
+    monkeypatch.delitem(sys.modules, "my_agent", raising=False)
+    cli(["init", "--template", template])
+    cli(["run", "--quiet"])
+    scores = storage.load_scores(storage.connect(tmp_path / "agenteval.db"), 1)
+    assert any(s.scorer == "exact_match" for s in scores)
+    if template == "rag":
+        assert any(s.scorer == "retrieval_recall" for s in scores)
+    sys.modules.pop("my_agent", None)
+
+@pytest.mark.parametrize("template", ["openai", "anthropic", "langgraph"])
+def test_api_templates_name_their_model_and_what_they_need(template, tmp_path, monkeypatch, capsys):
+    import tomllib
+
+    from agenteval.cli import main as cli
+
+    monkeypatch.chdir(tmp_path)
+    cli(["init", "--template", template])
+    out = capsys.readouterr().out
+    config = tomllib.loads((tmp_path / "agenteval.toml").read_text())
+    assert config["run"]["model"] != "example-model" and config["run"]["price"][1] > 0
+    assert "API_KEY" in out
+    compile((tmp_path / "my_agent.py").read_text(), "my_agent.py", "exec")  # valid Python

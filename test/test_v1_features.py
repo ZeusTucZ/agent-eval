@@ -88,6 +88,7 @@ def test_config_tables_become_command_line_defaults():
 def test_init_then_run_then_report_works_end_to_end(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "my_agent", raising=False)  # another test's my_agent.py may be cached
     cli(["init"])
     assert {p.name for p in tmp_path.iterdir()} >= {"my_agent.py", "cases.jsonl", "agenteval.toml"}
     with pytest.raises(SystemExit, match="Not overwriting"):

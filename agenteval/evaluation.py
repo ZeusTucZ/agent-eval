@@ -90,6 +90,49 @@ class Results:
         """The trials that didn't pass exact_match, or stopped with a failure."""
         return [row for row in self.to_records() if row["failure"] or row.get("exact_match") == 0.0]
 
+    def check(
+        self,
+        min_pass_rate: float | None = None,
+        min_scores: dict[str, float] | None = None,
+        max_cost: float | None = None,
+        max_failures: int | None = None,
+    ) -> "Results":
+        """Raise AssertionError, listing what fell short, unless every limit is met. For tests:
+
+            def test_support_agent():
+                evaluate(answer, "cases.jsonl", model="gpt-4o-mini").check(
+                    min_pass_rate=0.9, min_scores={"tool_selection": 1.0}, max_cost=0.50)
+
+        Returns the results, so the call can be chained or kept.
+        """
+        problems = []
+        rate = self.pass_rate
+        if min_pass_rate is not None and (rate is None or rate < min_pass_rate):
+            shown = "n/a" if rate is None else f"{rate:.1%}"
+            problems.append(f"pass rate {shown} is below {min_pass_rate:.1%}")
+        for scorer, minimum in (min_scores or {}).items():
+            value = self.score(scorer)
+            if value is None:
+                problems.append(f"{scorer} produced no scores (does it apply to these cases?)")
+            elif value < minimum:
+                problems.append(f"{scorer} is {value:.1%}, below {minimum:.1%}")
+        if max_cost is not None and self.cost > max_cost:
+            problems.append(f"cost ${self.cost:.4f} is over ${max_cost:.4f}")
+        failures = [t for t in self.trials if t.failure_type]
+        if max_failures is not None and len(failures) > max_failures:
+            problems.append(f"{len(failures)} trials failed (more than {max_failures})")
+        if problems:
+            examples = [
+                f"  case {row['case']}: {row['question'][:70]!r} -> {(row['answer'] or row['failure'])[:70]!r}"
+                + (f" (expected {row['expected'][:40]!r})" if row["expected"] else "")
+                for row in self.failures()[:5]
+            ]
+            message = "agenteval check failed:\n  " + "\n  ".join(problems)
+            if examples:
+                message += "\nTrials that didn't pass:\n" + "\n".join(examples)
+            raise AssertionError(message)
+        return self
+
     def compare(self, baseline: "Results") -> str:
         """Is this run better than `baseline`? The same paired test as `agenteval compare`."""
         a = ExperimentData(baseline.experiment, baseline.trials, baseline.scores)

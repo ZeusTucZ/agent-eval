@@ -9,12 +9,16 @@ command's `--help` by `scripts/build_cli_reference.py`.
 Set up a project: an example agent, cases and agenteval.toml.
 
 ```
-usage: agenteval init [-h] [--agent-file AGENT_FILE] [--cases-file CASES_FILE] [--force]
+usage: agenteval init [-h] [--template {anthropic,basic,langgraph,openai,rag}]
+                      [--agent-file AGENT_FILE] [--cases-file CASES_FILE] [--force]
 
 Set up a project in this directory.
 
 options:
   -h, --help            show this help message and exit
+  --template {anthropic,basic,langgraph,openai,rag}
+                        basic and rag need no API key; openai, anthropic and langgraph are real
+                        agents
   --agent-file AGENT_FILE
   --cases-file CASES_FILE
   --force               overwrite files that exist

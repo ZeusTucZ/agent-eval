@@ -7,6 +7,8 @@ agent, questions and settings go.
 import argparse
 from pathlib import Path
 
+from agenteval.templates import TEMPLATES
+
 AGENT = '''"""Your agent. Replace the body with your own: keep llm_call around model calls and tool
 around tool calls, and agenteval records each one as a step.
 
@@ -52,8 +54,8 @@ db = "agenteval.db"
 
 [run]
 agent = "{module}:answer"     # your agent: module.path:function
-model = "example-model"       # the model llm_call() records, for pricing
-price = [0, 0]                # dollars per million input and output tokens
+model = "{model}"       # the model your agent calls, for pricing
+price = {price}                # dollars per million input and output tokens
 dataset = "{cases}"
 attempts = 3                  # LLMs vary between runs, so ask each question more than once
 name = "first-run"
@@ -64,16 +66,20 @@ name = "first-run"
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="agenteval init", description="Set up a project in this directory.")
+    parser.add_argument("--template", choices=sorted(TEMPLATES), default="basic",
+                        help="basic and rag need no API key; openai, anthropic and langgraph are real agents")
     parser.add_argument("--agent-file", default="my_agent.py")
     parser.add_argument("--cases-file", default="cases.jsonl")
     parser.add_argument("--force", action="store_true", help="overwrite files that exist")
     args = parser.parse_args(argv)
 
     module = Path(args.agent_file).with_suffix("").as_posix().replace("/", ".")
+    agent, cases, model, price, install, needs = TEMPLATES[args.template]
     files = {
-        Path(args.agent_file): AGENT,
-        Path(args.cases_file): CASES,
-        Path("agenteval.toml"): CONFIG.format(module=module, cases=Path(args.cases_file).as_posix()),
+        Path(args.agent_file): agent or AGENT,
+        Path(args.cases_file): cases or CASES,
+        Path("agenteval.toml"): CONFIG.format(module=module, cases=Path(args.cases_file).as_posix(),
+                                              model=model, price=price),
     }
     existing = [str(path) for path in files if path.exists()]
     if existing and not args.force:
@@ -83,7 +89,15 @@ def main(argv: list[str] | None = None) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         print(f"  wrote {path}")
-    print("\nNext:\n  agenteval run        run the example agent (no API key needed)\n"
-          "  agenteval report     see what happened\n"
-          "  agenteval ui         browse it in the dashboard (pip install pyagenteval[server])\n\n"
-          f"Then put your own agent in {args.agent_file} and your questions in {args.cases_file}.")
+    steps = []
+    if install:
+        steps.append(f"pip install {install}")
+    if needs:
+        steps.append(f"set {needs} in your environment")
+    steps += [
+        "agenteval run        run the agent" + ("" if needs else " (no API key needed)"),
+        "agenteval report     see what happened",
+        "agenteval ui         browse it in the dashboard (pip install pyagenteval[server])",
+    ]
+    print("\nNext:\n" + "\n".join(f"  {step}" for step in steps)
+          + f"\n\nThen make {args.agent_file} your own agent and {args.cases_file} your questions.")
