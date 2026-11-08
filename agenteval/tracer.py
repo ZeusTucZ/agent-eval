@@ -2,7 +2,7 @@ import re
 from contextlib import contextmanager
 from time import perf_counter_ns
 
-from evalkit.models import Span
+from agenteval.models import Span
 
 MAX_RECORDED_TEXT = 1000  # per field: enough to read what happened; API errors can be much longer
 

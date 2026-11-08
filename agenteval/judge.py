@@ -5,9 +5,9 @@ expected answer is "3", and tool_faithfulness only checks that numbers and names
 in a tool result, not that a sentence's claims follow from it. A second model can judge
 both, but a judge is itself a model that makes mistakes, so its scores are stored apart
 (scorer "judge_<rubric>") and are meant to be checked against human labels with
-evalkit.calibrate before anyone relies on them.
+agenteval.calibrate before anyone relies on them.
 
-    python -m evalkit.judge 12 --rubric groundedness
+    python -m agenteval.judge 12 --rubric groundedness
 
 Judging costs tokens, so it runs on demand rather than as part of every run.
 """
@@ -21,14 +21,14 @@ from dataclasses import dataclass
 from random import Random
 from typing import Any
 
-from evalkit import storage
-from evalkit.cost import PRICES, span_cost
-from evalkit.models import EvaluationCase, Score, Trial
-from evalkit.openai_agent import PROVIDERS, classify_openai_error, openai_retry_after
-from evalkit.retry import RateLimiter, RetryPolicy, call_llm_with_retries
-from evalkit.sample_data import dataset_by_name
-from evalkit.scorers import ABSTAINED, _normalize
-from evalkit.tracer import Tracer
+from agenteval import storage
+from agenteval.cost import PRICES, span_cost
+from agenteval.models import EvaluationCase, Score, Trial
+from agenteval.openai_agent import PROVIDERS, classify_openai_error, openai_retry_after
+from agenteval.retry import RateLimiter, RetryPolicy, call_llm_with_retries
+from agenteval.sample_data import dataset_by_name
+from agenteval.scorers import ABSTAINED, _normalize
+from agenteval.tracer import Tracer
 
 @dataclass(frozen=True)
 class Rubric:
@@ -188,20 +188,20 @@ async def judge_trials(
     results = await asyncio.gather(*(one(trial) for trial in trials))
     return [score for score in results if score is not None]
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Score a saved experiment's answers with an LLM judge.")
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="agenteval judge", description="Score a saved experiment's answers with an LLM judge.")
     parser.add_argument("experiment_id", type=int)
     parser.add_argument("--rubric", choices=sorted(RUBRICS), required=True)
-    parser.add_argument("--db", default="evalkit.db")
+    parser.add_argument("--db", default="agenteval.db")
     parser.add_argument("--model", default="llama-3.3-70b-versatile",
                         help="the judge; a different, larger model than the agent's is the usual choice")
     parser.add_argument("--provider", choices=sorted(PROVIDERS), default="groq")
     parser.add_argument("--rpm", type=int, default=25, help="requests per minute to stay under; 0 = no limit")
     parser.add_argument("--concurrency", type=int, default=4)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.model not in PRICES:
-        raise SystemExit(f"No price for {args.model!r}. Add it to PRICES in evalkit/cost.py.")
+        raise SystemExit(f"No price for {args.model!r}. Add it to PRICES in agenteval/cost.py.")
     key_variable = PROVIDERS[args.provider][1]
     if key_variable and not os.environ.get(key_variable):
         raise SystemExit(f"Set the {key_variable} environment variable first.")
@@ -228,7 +228,7 @@ def main() -> None:
         print(f"WARNING: {judge.failed} judge calls failed after retries (see the rate limits) and were left unscored.")
     print(f"Cost: ${judge.cost:.4f}")
     print(f"Before relying on these scores, check them against your own labels:\n"
-          f"  python -m evalkit.calibrate label {args.experiment_id} --rubric {rubric.name}")
+          f"  python -m agenteval.calibrate label {args.experiment_id} --rubric {rubric.name}")
 
 if __name__ == "__main__":
     main()

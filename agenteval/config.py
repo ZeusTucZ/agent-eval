@@ -11,7 +11,7 @@ import os
 
 def database_path() -> str:
     """Where the SQLite file lives. Render mounts its persistent disk at /data."""
-    return os.environ.get("DATABASE_PATH", "evalkit.db")
+    return os.environ.get("DATABASE_PATH", "agenteval.db")
 
 
 def api_token() -> str:

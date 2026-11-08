@@ -99,6 +99,19 @@ class Experiment(BaseModel):
     prices: dict[str, Price]  # snapshot at run time, so later price changes don't rewrite history
     created_at: datetime
     dataset_version: str | None = None  # None for experiments saved before Phase 4
+    # "running" while trials are still being saved, "completed", or "interrupted" when a run
+    # stopped early (Ctrl+C, a crash, --max-cost); an interrupted run can be resumed.
+    status: Literal["running", "completed", "interrupted"] = "completed"
+    planned_trials: int | None = None  # cases x attempts, so a partial run shows what's missing
+    # Where it ran: Python, agenteval and provider SDK versions, and the git commit of the
+    # code, so a result can be traced back to exactly what produced it.
+    environment: dict[str, Any] = {}
+    # Your own scorers, as "module:function", so rescoring later can run them again.
+    custom_scorers: list[str] = []
+
+    @property
+    def complete(self) -> bool:
+        return self.status == "completed"
 
 # Fields added to EvaluationCase after dataset versions were first stored. Left out of the
 # hash while unset, so adding a field doesn't make every saved experiment look like it ran

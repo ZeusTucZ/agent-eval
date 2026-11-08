@@ -3,19 +3,62 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "evalkit"
-version = "0.1.0"
-requires-python = ">=3.12"
-dependencies = ["pydantic>=2", "google-genai>=1.20", "openai>=1.40", "fastapi>=0.115", "uvicorn[standard]>=0.30"]
+# "agenteval" and "agent-eval" are taken on PyPI, and PyPI refuses names that differ only
+# in separators, so the distribution is agenteval-kit. You still `import agenteval` and
+# run `agenteval`.
+name = "agenteval-kit"
+version = "1.0.0"
+description = "Run your LLM agent many times, trace every step, and find out why it fails: correctness, tool use, latency, cost, retries and regressions."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Lorenzo" }]
+requires-python = ">=3.11"
+keywords = ["llm", "agents", "evaluation", "rag", "testing", "observability"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Testing",
+]
+# The core: run, trace, score, report, compare, judge. openai is here because every
+# OpenAI-compatible provider (OpenAI, Groq, Ollama, OpenRouter, vLLM...) goes through it.
+dependencies = ["pydantic>=2", "openai>=1.40"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.6"]  # httpx backs fastapi.testclient in test/test_api.py
-# The rag dataset's search tool. Optional because it is large (ChromaDB pulls in onnxruntime)
-# and only that dataset needs it.
+gemini = ["google-genai>=1.20"]
+# The HTTP API and the dashboard (agenteval ui, or a deployed server).
+server = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
+# The rag dataset's search tool. Large (ChromaDB pulls in onnxruntime), so only on request.
 rag = ["chromadb>=1.5"]
+all = ["agenteval-kit[gemini,server,rag]"]
+dev = [
+    "agenteval-kit[all]",
+    "pytest>=8",
+    "httpx>=0.27",  # backs fastapi.testclient in test/test_api.py
+    "ruff>=0.6",
+    "build>=1",
+]
+
+[project.scripts]
+agenteval = "agenteval.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ZeusTucZ/agent-eval"
+Documentation = "https://zeustucz.github.io/agent-eval/"
+Issues = "https://github.com/ZeusTucZ/agent-eval/issues"
+Changelog = "https://github.com/ZeusTucZ/agent-eval/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
-packages = ["evalkit"]
+packages = ["agenteval", "agenteval.integrations"]
+
+[tool.setuptools.package-data]
+# The built-in datasets, and the dashboard once built into agenteval/static (see the release workflow).
+agenteval = ["data/*.jsonl", "static/**/*", "py.typed"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -27,6 +70,5 @@ extend-exclude = ["dashboard"]
 
 [tool.ruff.lint]
 # Real errors only: syntax, undefined names, unused imports and bugbear's likely bugs.
-# Style rules (import order and the like) are left off so linting doesn't rewrite
-# every file in open pull requests.
+# Style rules (import order and the like) are left off so linting doesn't rewrite every file.
 select = ["E4", "E7", "E9", "F", "B"]

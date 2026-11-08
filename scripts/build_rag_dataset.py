@@ -1,4 +1,4 @@
-"""Builds datasets/rag_corpus.jsonl and datasets/rag.jsonl.
+"""Builds agenteval/data/rag_corpus.jsonl and agenteval/data/rag.jsonl.
 
 The corpus describes Tessaly Instruments, a company that doesn't exist, so the only way to
 answer is to search it. Some documents are traps on purpose: an old policy next to the one
@@ -11,7 +11,7 @@ the dataset, edit this file and run it again; a test checks both files match its
 import json
 from pathlib import Path
 
-DATASETS = Path(__file__).resolve().parent.parent / "datasets"
+DATASETS = Path(__file__).resolve().parent.parent / "agenteval" / "data"
 CORPUS_OUTPUT = DATASETS / "rag_corpus.jsonl"
 CASES_OUTPUT = DATASETS / "rag.jsonl"
 

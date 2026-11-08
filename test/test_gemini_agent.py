@@ -8,11 +8,11 @@ from types import SimpleNamespace
 
 from google.genai import errors, types
 
-from evalkit.gemini_agent import GeminiAgent
-from evalkit.models import EvaluationCase
-from evalkit.retry import RetryPolicy
-from evalkit.runner import run_experiment
-from evalkit.scorers import score_trials
+from agenteval.gemini_agent import GeminiAgent
+from agenteval.models import EvaluationCase
+from agenteval.retry import RetryPolicy
+from agenteval.runner import run_experiment
+from agenteval.scorers import score_trials
 
 class FakeModels:
     def __init__(self, responses):

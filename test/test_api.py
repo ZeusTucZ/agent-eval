@@ -1,7 +1,7 @@
-"""Tests for the Phase 1 HTTP layer (evalkit/api.py).
+"""Tests for the Phase 1 HTTP layer (agenteval/api.py).
 
 The API reads its database path and token from the environment on every
-request (see evalkit/config.py), so each test points it at a fresh
+request (see agenteval/config.py), so each test points it at a fresh
 temporary SQLite file with monkeypatch.setenv. Runs use the mock agent
 over a 5-case arithmetic dataset: deterministic, no API keys, fast.
 """
@@ -12,14 +12,14 @@ from datetime import datetime, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-from evalkit import storage
-from evalkit.api import app
-from evalkit.cost import PRICES
-from evalkit.mock_agent import FaultConfig, MockAgent
-from evalkit.models import AgentConfig, Experiment
-from evalkit.runner import run_experiment
-from evalkit.sample_data import arithmetic_cases
-from evalkit.scorers import score_trials
+from agenteval import storage
+from agenteval.api import app
+from agenteval.cost import PRICES
+from agenteval.mock_agent import FaultConfig, MockAgent
+from agenteval.models import AgentConfig, Experiment
+from agenteval.runner import run_experiment
+from agenteval.sample_data import arithmetic_cases
+from agenteval.scorers import score_trials
 
 TOKEN = "test-token"
 
@@ -216,7 +216,7 @@ def test_runs_are_bounded(client, field, value):
 
 
 def test_too_many_waiting_runs_are_refused(client, monkeypatch):
-    from evalkit import api
+    from agenteval import api
 
     monkeypatch.setattr(api, "_jobs", {str(n): {"status": "queued"} for n in range(api.MAX_WAITING_JOBS)})
     response = client.post("/api/runs", json={"agent": "mock", "dataset": "arithmetic", "attempts": 1},
@@ -225,7 +225,7 @@ def test_too_many_waiting_runs_are_refused(client, monkeypatch):
 
 
 def test_finished_jobs_are_pruned_oldest_first(monkeypatch):
-    from evalkit import api
+    from agenteval import api
 
     finished = {f"old-{n}": {"status": "completed"} for n in range(api.MAX_KEPT_JOBS)}
     monkeypatch.setattr(api, "_jobs", {**finished, "running": {"status": "running"}})
@@ -250,7 +250,7 @@ def test_a_cached_summary_is_rebuilt_when_scores_change(client, tmp_path):
     before = client.get(f"/api/experiments/{experiment_id}").json()
 
     conn = storage.connect(tmp_path / "api.db")
-    with conn:  # what evalkit.rescore would do from another process
+    with conn:  # what agenteval.rescore would do from another process
         conn.execute("UPDATE scores SET value = 0 WHERE experiment_id = ? AND scorer = 'exact_match'",
                      (experiment_id,))
 
@@ -259,7 +259,7 @@ def test_a_cached_summary_is_rebuilt_when_scores_change(client, tmp_path):
 
 
 def test_clients_over_the_limit_get_429_with_cors_headers(client, monkeypatch):
-    from evalkit import api
+    from agenteval import api
 
     monkeypatch.setenv("REQUESTS_PER_CLIENT_PER_MINUTE", "2")
     monkeypatch.setattr(api, "_client_limiter", api.ClientLimiter())
@@ -277,7 +277,7 @@ def test_clients_over_the_limit_get_429_with_cors_headers(client, monkeypatch):
 def test_the_limit_is_per_client_and_uses_the_proxys_address():
     from types import SimpleNamespace
 
-    from evalkit.api import ClientLimiter, client_address
+    from agenteval.api import ClientLimiter, client_address
 
     clock = SimpleNamespace(now=0.0)
     limiter = ClientLimiter(clock=lambda: clock.now)
@@ -297,7 +297,7 @@ def test_a_request_connection_works_from_another_thread(tmp_path, monkeypatch):
     # worker threads. With SQLite's default same-thread check that failed at random with 500s.
     import threading
 
-    from evalkit.api import get_conn
+    from agenteval.api import get_conn
 
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "threads.db"))
     dependency = get_conn()

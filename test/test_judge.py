@@ -7,14 +7,14 @@ from types import SimpleNamespace
 import pytest
 from openai.types.chat import ChatCompletion
 
-from evalkit import storage
-from evalkit.calibrate import agreement, format_agreement, label, load_labels, sample_trials, verdict
-from evalkit.cost import PRICES
-from evalkit.judge import RUBRICS, SYSTEM_PROMPT, Judge, build_prompt, judge_trials, judge_version, parse_verdict
-from evalkit.models import AgentConfig, EvaluationCase, Experiment, Score, Span, Trial
-from evalkit.retry import RetryPolicy
-from evalkit.scorers import SCORER_NAMES
-from evalkit.stats import cohens_kappa
+from agenteval import storage
+from agenteval.calibrate import agreement, format_agreement, label, load_labels, sample_trials, verdict
+from agenteval.cost import PRICES
+from agenteval.judge import RUBRICS, SYSTEM_PROMPT, Judge, build_prompt, judge_trials, judge_version, parse_verdict
+from agenteval.models import AgentConfig, EvaluationCase, Experiment, Score, Span, Trial
+from agenteval.retry import RetryPolicy
+from agenteval.scorers import SCORER_NAMES
+from agenteval.stats import cohens_kappa
 
 class FakeCompletions:
     def __init__(self, replies):

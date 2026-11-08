@@ -2,7 +2,7 @@
 // baked in at build time (Render Static Site env var); locally it defaults
 // to the FastAPI dev server. No other file reads import.meta.env.
 //
-// Endpoints exposed here are exactly the 7 the API defines (evalkit/api.py):
+// Endpoints exposed here are exactly the 7 the API defines (agenteval/api.py):
 //   GET  /health
 //   GET  /api/experiments
 //   GET  /api/experiments/{id}

@@ -3,7 +3,7 @@
 React + Vite + TypeScript dashboard for the agent-eval FastAPI backend
 (Phase 4 of the deployment plan). It only displays fields the API actually
 returns — see `src/types.ts` for the exact contract (from
-`evalkit/api.py` `experiment_summary()` and `evalkit/models.py`).
+`agenteval/api.py` `experiment_summary()` and `agenteval/models.py`).
 
 ## Run locally
 
@@ -16,7 +16,7 @@ The API base URL comes from `VITE_API_URL` (only read in `src/api.ts`). It
 defaults to `http://localhost:8000` — run the backend first:
 
 ```bash
-uvicorn evalkit.api:app --reload   # from the repo root
+uvicorn agenteval.api:app --reload   # from the repo root
 ```
 
 ## Build
@@ -59,4 +59,4 @@ Identifiers, the latency breakdown and re-scoring are under "Details" at the end
   with the `arithmetic` dataset, real agents with `mixed`, `hard` or `rag`,
   and only models that have a price.
 - POST `/api/runs` does not accept `--rpm` / `--timeout`: the server applies
-  the per-agent defaults from `evalkit/run.py` `AGENT_DEFAULTS`.
+  the per-agent defaults from `agenteval/run.py` `AGENT_DEFAULTS`.

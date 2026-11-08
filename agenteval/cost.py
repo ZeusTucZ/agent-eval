@@ -1,6 +1,26 @@
-from evalkit.models import Price, Span, Trial
+import json
+import os
+from pathlib import Path
 
-PRICES: dict[str, Price] = {
+from agenteval.models import Price, Span, Trial
+
+# When the built-in prices below were last checked. `agenteval prices` warns once they're old.
+PRICES_CHECKED = "2026-10"
+
+def user_prices_file() -> Path:
+    """Where `agenteval prices --update` saves current prices: AGENTEVAL_PRICES_FILE, or
+    ~/.agenteval/prices.json."""
+    return Path(os.environ.get("AGENTEVAL_PRICES_FILE") or Path.home() / ".agenteval" / "prices.json")
+
+def load_user_prices(path: Path | None = None) -> dict[str, Price]:
+    path = path or user_prices_file()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {model: Price(**price) for model, price in data.get("prices", {}).items()}
+
+BUILT_IN_PRICES: dict[str, Price] = {
     # Made-up prices for the mock models.
     "mock-llm": Price(input_per_million=3.00, output_per_million=15.00),
     "mock-llm-small": Price(input_per_million=0.25, output_per_million=1.25),
@@ -15,6 +35,9 @@ PRICES: dict[str, Price] = {
     "openai/gpt-oss-120b": Price(input_per_million=0.15, output_per_million=0.60),
     "llama-3.3-70b-versatile": Price(input_per_million=0.59, output_per_million=0.79),
 }
+
+# The built-in table, with any prices you've updated or added taking precedence.
+PRICES: dict[str, Price] = {**BUILT_IN_PRICES, **load_user_prices()}
 
 def span_cost(span: Span, prices: dict[str, Price]) -> float:
     if span.kind != "llm":

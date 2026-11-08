@@ -3,11 +3,11 @@
 A judge's pass rate means nothing until you know how often it agrees with a person.
 First label a random sample of answers yourself, without seeing the judge's verdicts:
 
-    python -m evalkit.calibrate label 12 --rubric groundedness --sample 50
+    python -m agenteval.calibrate label 12 --rubric groundedness --sample 50
 
 Then measure agreement on the trials both of you judged:
 
-    python -m evalkit.calibrate agree 12 --rubric groundedness
+    python -m agenteval.calibrate agree 12 --rubric groundedness
 
 Labels are saved one per line as you go (in labels/ by default), so labelling can stop
 and resume, and the file can be kept in the repository next to the dataset.
@@ -20,11 +20,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from random import Random
 
-from evalkit import storage
-from evalkit.judge import RUBRICS, Rubric, applies, sources_of
-from evalkit.models import EvaluationCase, Score, Trial
-from evalkit.sample_data import dataset_by_name
-from evalkit.stats import cohens_kappa
+from agenteval import storage
+from agenteval.judge import RUBRICS, Rubric, applies, sources_of
+from agenteval.models import EvaluationCase, Score, Trial
+from agenteval.sample_data import dataset_by_name
+from agenteval.stats import cohens_kappa
 
 LABELS_DIR = Path("labels")
 
@@ -153,20 +153,20 @@ def format_agreement(result: Agreement) -> str:
                   for trial_id, human, score in result.disagreements]
     return "\n".join(lines)
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Label answers yourself and measure an LLM judge's agreement.")
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="agenteval calibrate", description="Label answers yourself and measure an LLM judge's agreement.")
     commands = parser.add_subparsers(dest="command", required=True)
     for name, help_text in (("label", "label a random sample of answers"),
                             ("agree", "compare your labels with the judge's scores")):
         command = commands.add_parser(name, help=help_text)
         command.add_argument("experiment_id", type=int)
         command.add_argument("--rubric", choices=sorted(RUBRICS), required=True)
-        command.add_argument("--db", default="evalkit.db")
+        command.add_argument("--db", default="agenteval.db")
         command.add_argument("--labels", type=Path, help="label file; default: labels/experiment-<id>-<rubric>.jsonl")
         if name == "label":
             command.add_argument("--sample", type=int, default=50, help="how many answers to label")
             command.add_argument("--seed", type=int, default=0)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     sys.stdout.reconfigure(errors="replace")
     conn = storage.connect(args.db)
@@ -183,7 +183,7 @@ def main() -> None:
     judge_scores = [score for score in storage.load_scores(conn, args.experiment_id)
                     if score.scorer == f"judge_{rubric.name}"]
     if not judge_scores:
-        raise SystemExit(f"No judge scores yet: python -m evalkit.judge {args.experiment_id} --rubric {rubric.name}")
+        raise SystemExit(f"No judge scores yet: python -m agenteval.judge {args.experiment_id} --rubric {rubric.name}")
     print(format_agreement(agreement(load_labels(path), judge_scores)))
 
 if __name__ == "__main__":

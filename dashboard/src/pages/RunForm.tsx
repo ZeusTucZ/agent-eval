@@ -22,7 +22,7 @@ const DATASETS: Record<Dataset, string> = {
   rag: "RAG: 45 questions over company documents",
 };
 
-// Models with a price in evalkit/cost.py; the API refuses any other.
+// Models with a price in agenteval/cost.py; the API refuses any other.
 const MODELS: Record<Agent, string[]> = {
   mock: ["mock-llm", "mock-llm-small"],
   groq: ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "llama-3.3-70b-versatile"],

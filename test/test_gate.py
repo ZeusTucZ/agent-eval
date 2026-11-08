@@ -4,16 +4,16 @@ from pathlib import Path
 
 import pytest
 
-from evalkit import gate, storage
-from evalkit.compare import ExperimentData, check_comparable, compare_experiments
-from evalkit.cost import PRICES
-from evalkit.gate import BLOCK, CANNOT_JUDGE, COMMENT_MARKER, PASS, decide, format_markdown, run_gate
-from evalkit.mock_agent import FaultConfig, MockAgent
-from evalkit.models import AgentConfig, Experiment, dataset_version
-from evalkit.runner import run_experiment
-from evalkit.sample_data import arithmetic_cases
-from evalkit.scorers import score_trials
-from evalkit.tracer import Tracer
+from agenteval import gate, storage
+from agenteval.compare import ExperimentData, check_comparable, compare_experiments
+from agenteval.cost import PRICES
+from agenteval.gate import BLOCK, CANNOT_JUDGE, COMMENT_MARKER, PASS, decide, format_markdown, run_gate
+from agenteval.mock_agent import FaultConfig, MockAgent
+from agenteval.models import AgentConfig, Experiment, dataset_version
+from agenteval.runner import run_experiment
+from agenteval.sample_data import arithmetic_cases
+from agenteval.scorers import score_trials
+from agenteval.tracer import Tracer
 from test_compare import make_cases, make_data, outcomes
 
 def decision_for(a: ExperimentData, b: ExperimentData, count: int = 20):

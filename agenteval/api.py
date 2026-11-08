@@ -1,4 +1,4 @@
-"""HTTP layer over the existing evalkit runner and storage.
+"""HTTP layer over the existing agenteval runner and storage.
 
 Thin on purpose: no evaluation logic lives here. It only exposes what
 storage.py, report.py, rescore.py and run.py already do, over HTTP.
@@ -33,12 +33,12 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from evalkit import config, storage
-from evalkit.cost import PRICES, total_cost
-from evalkit.models import Experiment, Score, Trial
-from evalkit.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, EMBEDDINGS, MAX_TOP_K
-from evalkit.report import latency_percentiles, mean_score, retrieval_diagnosis
-from evalkit.scorers import SCORER_NAMES, score_trials
+from agenteval import config, storage
+from agenteval.cost import PRICES, total_cost
+from agenteval.models import Experiment, Score, Trial
+from agenteval.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, EMBEDDINGS, MAX_TOP_K
+from agenteval.report import latency_percentiles, mean_score, retrieval_diagnosis
+from agenteval.scorers import SCORER_NAMES, score_trials
 
 app = FastAPI(title="agent-eval API", version="0.1.0")
 
@@ -349,7 +349,7 @@ def _set_job(job_id: str, **updates) -> None:
 def _run_args(request: RunRequest) -> argparse.Namespace:
     """The namespace run.py's agent builders expect, with the same
     per-agent defaults the CLI uses (run.py AGENT_DEFAULTS)."""
-    from evalkit.run import AGENT_DEFAULTS
+    from agenteval.run import AGENT_DEFAULTS
 
     defaults = AGENT_DEFAULTS[request.agent]
     return argparse.Namespace(
@@ -377,16 +377,16 @@ def _run_args(request: RunRequest) -> argparse.Namespace:
 
 def _execute_run(job_id: str, request: RunRequest) -> None:
     """Runs in a background thread after the HTTP response is sent."""
-    from evalkit.models import dataset_version
-    from evalkit.run import BUILDERS, load_dataset
-    from evalkit.runner import run_experiment
+    from agenteval.models import dataset_version
+    from agenteval.run import BUILDERS, load_dataset
+    from agenteval.runner import run_experiment
 
     with _run_lock:
         _set_job(job_id, status="running")
         try:
             args = _run_args(request)
             if args.model not in PRICES:
-                raise ValueError(f"No price for {args.model!r}. Add it to PRICES in evalkit/cost.py.")
+                raise ValueError(f"No price for {args.model!r}. Add it to PRICES in agenteval/cost.py.")
             agent, agent_config = BUILDERS[request.agent](args)
             dataset_name, dataset = load_dataset(args)
 
@@ -424,7 +424,7 @@ def create_run(
     _token: None = Depends(require_token),
 ) -> dict:
     """Validate, queue the run, and answer immediately with the job id."""
-    from evalkit.run import AGENT_DEFAULTS
+    from agenteval.run import AGENT_DEFAULTS
 
     if request.agent == "mock" and request.dataset != "arithmetic":
         # Same rule as the CLI: the mock only answers arithmetic questions.
@@ -436,7 +436,7 @@ def create_run(
     if model not in PRICES:
         raise HTTPException(
             status_code=400,
-            detail=f"No price for {model!r}. Add it to PRICES in evalkit/cost.py.",
+            detail=f"No price for {model!r}. Add it to PRICES in agenteval/cost.py.",
         )
     if request.agent == "groq" and not config.groq_api_key():
         raise HTTPException(status_code=400, detail="Set the GROQ_API_KEY environment variable first.")
@@ -473,7 +473,7 @@ def rescore_experiment(
     conn: Conn,
     _token: None = Depends(require_token),
 ) -> dict:
-    from evalkit.sample_data import dataset_by_name
+    from agenteval.sample_data import dataset_by_name
 
     experiment = _load_or_404(conn, experiment_id)
     trials = storage.load_trials(conn, experiment_id)

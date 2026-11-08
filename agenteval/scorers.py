@@ -3,8 +3,9 @@ import re
 import unicodedata
 from collections import Counter
 from collections.abc import Callable
+from typing import Any
 
-from evalkit.models import EvaluationCase, Score, Span, Trial
+from agenteval.models import EvaluationCase, Score, Span, Trial
 
 # A scorer returns None when it has nothing to judge, e.g. a tool scorer on a trial with no tool calls.
 Scorer = Callable[[EvaluationCase, Trial], Score | None]
@@ -198,3 +199,42 @@ def score_trials(
             if score is not None:
                 scores.append(score)
     return scores
+
+# --- Your own scorers ---
+
+def as_scorer(function: Callable[[EvaluationCase, Trial], Any], name: str | None = None) -> Scorer:
+    """Turn your function into a scorer. It gets the case and the trial and may return a
+    Score, a number from 0 to 1, a bool, a (value, reasoning) pair, or None to skip the
+    trial. Its scores are named after the function unless `name` says otherwise."""
+    scorer_name = name or getattr(function, "__name__", "custom")
+
+    def scorer(case: EvaluationCase, trial: Trial) -> Score | None:
+        result = function(case, trial)
+        if result is None or isinstance(result, Score):
+            return result
+        reasoning = None
+        if isinstance(result, tuple):
+            result, reasoning = result
+        value = float(result)  # bools become 1.0 and 0.0
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"scorer {scorer_name} returned {value}; scores must be between 0 and 1")
+        return Score(trial_id=trial.id, scorer=scorer_name, value=value, reasoning=reasoning)
+
+    scorer.__name__ = scorer_name
+    return scorer
+
+def load_scorer(spec: str) -> Scorer:
+    """Import "package.module:function" as a scorer (see as_scorer)."""
+    import importlib
+    import sys
+    from pathlib import Path
+
+    module_name, _, attribute = spec.partition(":")
+    if not module_name or not attribute:
+        raise ValueError(f"expected module.path:function, got {spec!r}")
+    if str(Path.cwd()) not in sys.path:
+        sys.path.insert(0, str(Path.cwd()))
+    function = getattr(importlib.import_module(module_name), attribute, None)
+    if not callable(function):
+        raise ValueError(f"{spec} is not a function")
+    return as_scorer(function)

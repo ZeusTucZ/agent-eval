@@ -4,14 +4,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from evalkit import storage
-from evalkit.cost import PRICES
-from evalkit.mock_agent import FaultConfig, MockAgent
-from evalkit.models import AgentConfig, Experiment, Score
-from evalkit.report import summarize
-from evalkit.runner import run_experiment
-from evalkit.sample_data import arithmetic_cases
-from evalkit.scorers import exact_match
+from agenteval import storage
+from agenteval.cost import PRICES
+from agenteval.mock_agent import FaultConfig, MockAgent
+from agenteval.models import AgentConfig, Experiment, Score
+from agenteval.report import summarize
+from agenteval.runner import run_experiment
+from agenteval.sample_data import arithmetic_cases
+from agenteval.scorers import exact_match
 
 def make_experiment(name: str = "test") -> Experiment:
     return Experiment(

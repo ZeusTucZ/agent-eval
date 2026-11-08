@@ -1,10 +1,10 @@
 import json
 import sqlite3
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
-from evalkit.models import AgentConfig, Experiment, Price, Score, Span, Trial
+from agenteval.models import AgentConfig, Experiment, Price, Score, Span, Trial
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS experiments (
@@ -59,6 +59,17 @@ CREATE TABLE IF NOT EXISTS scores (
     PRIMARY KEY (experiment_id, trial_id, scorer),
     FOREIGN KEY (experiment_id, trial_id) REFERENCES trials(experiment_id, trial_id)
 );
+
+-- A person's verdict on an answer, for checking an LLM judge (agenteval calibrate).
+CREATE TABLE IF NOT EXISTS labels (
+    experiment_id INTEGER NOT NULL,
+    trial_id      INTEGER NOT NULL,
+    rubric        TEXT NOT NULL,
+    label         TEXT NOT NULL CHECK (label IN ('pass', 'fail')),
+    created_at    TEXT NOT NULL,
+    PRIMARY KEY (experiment_id, trial_id, rubric),
+    FOREIGN KEY (experiment_id, trial_id) REFERENCES trials(experiment_id, trial_id)
+);
 """
 
 def connect(path: str | Path, check_same_thread: bool = True) -> sqlite3.Connection:
@@ -80,7 +91,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "input_text": "TEXT",
             "output_text": "TEXT",
         },
-        "experiments": {"dataset_version": "TEXT"},
+        "experiments": {
+            "dataset_version": "TEXT",
+            # Experiments from before incremental saving were only ever saved complete.
+            "status": "TEXT NOT NULL DEFAULT 'completed'",
+            "planned_trials": "INTEGER",
+            "environment_json": "TEXT",
+            "custom_scorers_json": "TEXT",
+        },
     }
     with conn:
         for table, columns in added_columns.items():
@@ -89,52 +107,111 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 if column not in existing:
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
+def start_experiment(conn: sqlite3.Connection, experiment: Experiment) -> int:
+    """Record an experiment before its trials run, so each trial can be saved as it finishes:
+    a run cut short keeps everything already paid for, and can be resumed."""
+    with conn:
+        return _insert_experiment(conn, experiment)
+
+def _insert_experiment(conn: sqlite3.Connection, experiment: Experiment) -> int:
+    cursor = conn.execute(
+        "INSERT INTO experiments (name, dataset_name, dataset_version, config_json, config_version,"
+        " attempts, prices_json, created_at, status, planned_trials, environment_json, custom_scorers_json)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            experiment.name,
+            experiment.dataset_name,
+            experiment.dataset_version,
+            experiment.config.model_dump_json(),
+            experiment.config.version,
+            experiment.attempts,
+            _prices_json(experiment),
+            experiment.created_at.isoformat(),
+            experiment.status,
+            experiment.planned_trials,
+            json.dumps(experiment.environment),
+            json.dumps(experiment.custom_scorers),
+        ),
+    )
+    return cursor.lastrowid
+
+def _prices_json(experiment: Experiment) -> str:
+    return json.dumps({model: price.model_dump() for model, price in experiment.prices.items()})
+
+def save_trials(conn: sqlite3.Connection, experiment_id: int, trials: list[Trial], scores: list[Score]) -> None:
+    """Add finished trials and their scores, in one transaction."""
+    with conn:
+        _insert_trials(conn, experiment_id, trials, scores)
+
+def _insert_trials(conn: sqlite3.Connection, experiment_id: int, trials: list[Trial], scores: list[Score]) -> None:
+    conn.executemany(
+        "INSERT INTO trials VALUES (?, ?, ?, ?, ?, ?)",
+        [(experiment_id, t.id, t.case_id, t.attempt, t.output, t.failure_type) for t in trials],
+    )
+    conn.executemany(
+        "INSERT INTO spans (experiment_id, trial_id, position, kind, name, start_ns, end_ns,"
+        " status, error_type, input_tokens, output_tokens, retry, error_message, input_text, output_text)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (experiment_id, t.id, position, s.kind, s.name, s.start, s.end,
+             s.status, s.error_type, s.input_tokens, s.output_tokens, s.retry, s.error_message, s.input, s.output)
+            for t in trials
+            for position, s in enumerate(t.spans)
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO scores VALUES (?, ?, ?, ?, ?)",
+        [(experiment_id, s.trial_id, s.scorer, s.value, s.reasoning) for s in scores],
+    )
+
+def finish_experiment(conn: sqlite3.Connection, experiment_id: int, experiment: Experiment) -> None:
+    """Set the final status, and the prices, which may have gained models the run discovered."""
+    with conn:
+        conn.execute("UPDATE experiments SET status = ?, prices_json = ? WHERE id = ?",
+                     (experiment.status, _prices_json(experiment), experiment_id))
+
 def save_experiment(
     conn: sqlite3.Connection,
     experiment: Experiment,
     trials: list[Trial],
     scores: list[Score],
 ) -> int:
-    """Save everything in one transaction: a crash halfway leaves nothing behind, not half an experiment."""
-    with conn:
-        cursor = conn.execute(
-            "INSERT INTO experiments (name, dataset_name, dataset_version, config_json, config_version,"
-            " attempts, prices_json, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                experiment.name,
-                experiment.dataset_name,
-                experiment.dataset_version,
-                experiment.config.model_dump_json(),
-                experiment.config.version,
-                experiment.attempts,
-                json.dumps({model: price.model_dump() for model, price in experiment.prices.items()}),
-                experiment.created_at.isoformat(),
-            ),
-        )
-        experiment_id = cursor.lastrowid
-
-        conn.executemany(
-            "INSERT INTO trials VALUES (?, ?, ?, ?, ?, ?)",
-            [(experiment_id, t.id, t.case_id, t.attempt, t.output, t.failure_type) for t in trials],
-        )
-        conn.executemany(
-            "INSERT INTO spans (experiment_id, trial_id, position, kind, name, start_ns, end_ns,"
-            " status, error_type, input_tokens, output_tokens, retry, error_message, input_text, output_text)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                (experiment_id, t.id, position, s.kind, s.name, s.start, s.end,
-                 s.status, s.error_type, s.input_tokens, s.output_tokens, s.retry, s.error_message, s.input, s.output)
-                for t in trials
-                for position, s in enumerate(t.spans)
-            ],
-        )
-        conn.executemany(
-            "INSERT INTO scores VALUES (?, ?, ?, ?, ?)",
-            [(experiment_id, s.trial_id, s.scorer, s.value, s.reasoning) for s in scores],
-        )
-
+    """Save a finished experiment whole, in one transaction: a crash halfway leaves nothing behind."""
+    with conn:  # sqlite3 transactions don't nest, so this uses the inserts without their own
+        experiment_id = _insert_experiment(conn, experiment)
+        _insert_trials(conn, experiment_id, trials, scores)
     return experiment_id
+
+def delete_experiment(conn: sqlite3.Connection, experiment_id: int) -> None:
+    with conn:
+        for table in ("labels", "scores", "spans", "trials"):
+            conn.execute(f"DELETE FROM {table} WHERE experiment_id = ?", (experiment_id,))
+        if conn.execute("DELETE FROM experiments WHERE id = ?", (experiment_id,)).rowcount == 0:
+            raise LookupError(f"no experiment with id {experiment_id}")
+
+def rename_experiment(conn: sqlite3.Connection, experiment_id: int, name: str) -> None:
+    with conn:
+        if conn.execute("UPDATE experiments SET name = ? WHERE id = ?", (name, experiment_id)).rowcount == 0:
+            raise LookupError(f"no experiment with id {experiment_id}")
+
+def list_experiment_ids(conn: sqlite3.Connection) -> list[int]:
+    return [row[0] for row in conn.execute("SELECT id FROM experiments ORDER BY id")]
+
+def save_label(conn: sqlite3.Connection, experiment_id: int, trial_id: int, rubric: str, passed: bool) -> None:
+    """A person's verdict; labelling the same answer again replaces it."""
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO labels VALUES (?, ?, ?, ?, ?)",
+            (experiment_id, trial_id, rubric, "pass" if passed else "fail", datetime.now(UTC).isoformat()),
+        )
+
+def load_labels(conn: sqlite3.Connection, experiment_id: int, rubric: str) -> dict[int, bool]:
+    """trial id -> True for pass."""
+    return {
+        row["trial_id"]: row["label"] == "pass"
+        for row in conn.execute("SELECT trial_id, label FROM labels WHERE experiment_id = ? AND rubric = ?",
+                                (experiment_id, rubric))
+    }
 
 def replace_scores(
     conn: sqlite3.Connection,
@@ -177,6 +254,10 @@ def load_experiment(conn: sqlite3.Connection, experiment_id: int) -> Experiment:
         prices={model: Price(**price) for model, price in json.loads(row["prices_json"]).items()},
         created_at=datetime.fromisoformat(row["created_at"]),
         dataset_version=row["dataset_version"],
+        status=row["status"],
+        planned_trials=row["planned_trials"],
+        environment=json.loads(row["environment_json"] or "{}"),
+        custom_scorers=json.loads(row["custom_scorers_json"] or "[]"),
     )
 
 def load_trials(conn: sqlite3.Connection, experiment_id: int) -> list[Trial]:

@@ -1,26 +1,28 @@
 import argparse
 import asyncio
 from dataclasses import asdict
-from datetime import datetime, timezone
 from pathlib import Path
 
-from evalkit import storage
-from evalkit.cost import PRICES
-from evalkit.models import AgentConfig, EvaluationCase, Experiment, Price, Trial, dataset_version
-from evalkit.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, EMBEDDINGS, MAX_TOP_K, retrieval_config
-from evalkit.runner import Agent, run_experiment
-from evalkit.sample_data import (
+from agenteval import storage
+from agenteval.cost import PRICES
+from agenteval.models import AgentConfig, EvaluationCase, Price, Trial
+from agenteval.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, EMBEDDINGS, MAX_TOP_K, retrieval_config
+from agenteval.execution import RunPlan, aexecute
+from agenteval.runner import Agent
+from agenteval.sample_data import (
     arithmetic_cases,
     dataset_by_name,
     is_dataset_file,
     load_dataset_file,
+    sample_cases,
+    sample_name,
     tools_for_dataset,
 )
-from evalkit.scorers import score_trials
-from evalkit.tools import SYSTEM_PROMPT, ToolRegistry
+from agenteval.scorers import DEFAULT_SCORERS, load_scorer
+from agenteval.tools import SYSTEM_PROMPT, ToolRegistry
 
 def build_mock(args) -> tuple[Agent, AgentConfig]:
-    from evalkit.mock_agent import FaultConfig, MockAgent
+    from agenteval.mock_agent import FaultConfig, MockAgent
 
     faults = FaultConfig(
         tool_error_rate=args.tool_error_rate,
@@ -69,7 +71,7 @@ def _system_prompt(args) -> str:
     return Path(args.prompt_file).read_text(encoding="utf-8").strip()
 
 def build_gemini(args) -> tuple[Agent, AgentConfig]:
-    from evalkit.gemini_agent import GeminiAgent
+    from agenteval.gemini_agent import GeminiAgent
 
     _require_key("GEMINI_API_KEY", "aistudio.google.com")
     agent = GeminiAgent(
@@ -84,7 +86,7 @@ def build_gemini(args) -> tuple[Agent, AgentConfig]:
     return agent, _real_agent_config(agent, "gemini", args)
 
 def build_groq(args) -> tuple[Agent, AgentConfig]:
-    from evalkit.openai_agent import OpenAICompatibleAgent
+    from agenteval.openai_agent import OpenAICompatibleAgent
 
     _require_key("GROQ_API_KEY", "console.groq.com")
     agent = OpenAICompatibleAgent(
@@ -100,14 +102,14 @@ def build_groq(args) -> tuple[Agent, AgentConfig]:
     return agent, _real_agent_config(agent, "groq", args)
 
 def build_custom(args) -> tuple[Agent, AgentConfig]:
-    """Your own agent, imported from --agent module.path:name (see evalkit.sdk)."""
-    from evalkit.sdk import load_agent
+    """Your own agent, imported from --agent module.path:name (see agenteval.sdk)."""
+    from agenteval.sdk import load_agent
 
     try:
         agent, source_hash = load_agent(args.agent, args.model)
     except (ImportError, ValueError) as error:
         raise SystemExit(f"Can't load the agent {args.agent!r}: {error}") from None
-    # The source hash makes any edit to the agent's module a new version, so evalkit.compare
+    # The source hash makes any edit to the agent's module a new version, so agenteval.compare
     # can tell two versions of your agent apart even when the model and prompt are the same.
     config = AgentConfig(model=args.model, prompt="", params={"agent": args.agent, "source": source_hash})
     return agent, config
@@ -153,20 +155,20 @@ def prices_for(args, trials: list[Trial] | None = None) -> dict[str, Price]:
             prices[model] = Price(input_per_million=0.0, output_per_million=0.0)
         if unpriced:
             print(f"WARNING: no price for {', '.join(unpriced)}; their cost is recorded as $0. "
-                  "Name the model in llm_call() as --model, or add it to PRICES in evalkit/cost.py.")
+                  "Name the model in llm_call() as --model, or add it to PRICES in agenteval/cost.py.")
     return prices
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run an agent over a dataset and save the results.")
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="agenteval run", description="Run an agent over a dataset and save the results.")
     parser.add_argument("--name", default="smoke-test")
-    parser.add_argument("--db", default="evalkit.db")
+    parser.add_argument("--db", default="agenteval.db")
     parser.add_argument("--agent", default="mock",
-                        help="mock, gemini, groq, or your own as module.path:function (see evalkit.sdk)")
+                        help="mock, gemini, groq, or your own as module.path:function (see agenteval.sdk)")
     parser.add_argument("--model", help="default: mock-llm, gemini-2.5-flash or openai/gpt-oss-20b; "
                                         "required for your own agent")
     parser.add_argument("--price", type=float, nargs=2, metavar=("INPUT", "OUTPUT"),
                         help="dollars per million input and output tokens for --model, if it isn't in "
-                             "evalkit/cost.py; 0 0 if you don't track cost")
+                             "agenteval/cost.py; 0 0 if you don't track cost")
     parser.add_argument("--dataset",
                         help="arithmetic, mixed, hard, rag, or the path of your own .jsonl file; "
                              "default: arithmetic for mock, mixed for gemini and groq")
@@ -197,7 +199,22 @@ def main() -> None:
                      help=f"documents each search returns, 1 to {MAX_TOP_K}; default {DEFAULT_TOP_K}")
     rag.add_argument("--embedding", choices=EMBEDDINGS, default=DEFAULT_EMBEDDING,
                      help="minilm: semantic, downloaded on first use; hashing: word matching, no download")
-    args = parser.parse_args()
+
+    control = parser.add_argument_group("cost, scope and storage")
+    control.add_argument("--max-cost", type=float, metavar="USD",
+                         help="stop starting trials once this much has been spent; resume later with --resume")
+    control.add_argument("--sample", type=int, metavar="N",
+                         help="run N cases instead of all, spread across categories; same N and --sample-seed, "
+                              "same cases, so samples can be compared")
+    control.add_argument("--sample-seed", type=int, default=0)
+    control.add_argument("--resume", type=int, metavar="ID",
+                         help="continue an interrupted experiment: only its missing trials run (same options)")
+    control.add_argument("--scorer", action="append", default=[], metavar="MODULE:FUNCTION",
+                         help="add your own scorer (repeatable); see agenteval.scorers.as_scorer")
+    control.add_argument("--redact", action="store_true",
+                         help="replace emails, phone and card numbers, IPs and API keys in what is saved")
+    control.add_argument("--quiet", action="store_true", help="no progress line")
+    args = parser.parse_args(argv)
 
     custom = is_custom_agent(args.agent)
     if not custom and args.agent not in BUILDERS:
@@ -218,44 +235,59 @@ def main() -> None:
     # Check the price before spending anything: an unknown model would only fail at report time.
     if args.model not in prices_for(args):
         raise SystemExit(f"No price for {args.model!r}. Pass --price INPUT OUTPUT (dollars per million "
-                         "tokens), or add it to PRICES in evalkit/cost.py.")
+                         "tokens), or add it to PRICES in agenteval/cost.py.")
 
     if args.agent == "mock" and args.dataset != "arithmetic":
         raise SystemExit("The mock agent only understands the arithmetic dataset; use --agent groq or gemini.")
 
     try:
         dataset_name, dataset = load_dataset(args)
-    except ValueError as error:
+        if args.sample:
+            dataset = sample_cases(dataset, args.sample, args.sample_seed)
+            dataset_name = sample_name(dataset_name, args.sample, args.sample_seed)
+        custom_scorers = [load_scorer(spec) for spec in args.scorer]
+    except (ValueError, ImportError) as error:
         raise SystemExit(str(error)) from None
     agent, config = build_custom(args) if custom else BUILDERS[args.agent](args)
 
-    trials = asyncio.run(run_experiment(
-        agent,
-        dataset,
+    plan = RunPlan(
+        agent=agent,
+        config=config,
+        dataset_name=dataset_name,
+        cases=dataset,
         attempts=args.attempts,
         concurrency=args.concurrency,
         timeout_s=args.timeout,
-    ))
-    scores = score_trials(dataset, trials)
-
-    experiment = Experiment(
-        name=args.name,
-        dataset_name=dataset_name,
-        dataset_version=dataset_version(dataset),
-        config=config,
-        attempts=args.attempts,
-        prices=prices_for(args, trials),
-        created_at=datetime.now(timezone.utc),
+        prices=prices_for(args),
+        scorers=[*DEFAULT_SCORERS, *custom_scorers],
+        custom_scorer_specs=list(args.scorer),
+        redact=args.redact,
     )
-    experiment_id = storage.save_experiment(storage.connect(args.db), experiment, trials, scores)
+    conn = storage.connect(args.db)
+    try:
+        result = asyncio.run(aexecute(
+            plan, conn, name=args.name, resume_id=args.resume, max_cost=args.max_cost,
+            progress=not args.quiet, finalize_prices=lambda trials: prices_for(args, trials),
+        ))
+    except ValueError as error:  # e.g. resuming with different options
+        raise SystemExit(str(error)) from None
+    except KeyboardInterrupt:
+        experiment_id = args.resume or storage.latest_experiment_id(conn)
+        raise SystemExit(f"\nInterrupted. Every finished trial is saved; continue with the same options and "
+                         f"--resume {experiment_id}") from None
 
-    print(f"Saved experiment {experiment_id} ({len(trials)} trials) to {args.db}")
+    trials = result.trials
+    print(f"Saved experiment {result.experiment_id} ({len(trials)} of {plan.planned_trials} trials) to {args.db}")
+    if result.stopped_by_budget:
+        print(f"Stopped at the --max-cost of ${args.max_cost}. Continue with the same options and "
+              f"--resume {result.experiment_id}, and a higher --max-cost.")
 
     quota_failures = sum(trial.failure_type == "quota_exhausted" for trial in trials)
     if quota_failures:
         print(f"WARNING: the daily quota ran out; {quota_failures} trials were not run. "
               "These results measure the quota, not the model. Re-run after it resets.")
-    print(f"View it with: python -m evalkit.report {experiment_id} --db {args.db}")
+    print(f"View it with: agenteval report {result.experiment_id} --db {args.db}")
+    return result.experiment_id
 
 if __name__ == "__main__":
     main()

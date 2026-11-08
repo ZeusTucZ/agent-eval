@@ -11,11 +11,11 @@ import httpx2
 import openai
 from openai.types.chat import ChatCompletion
 
-from evalkit.models import EvaluationCase
-from evalkit.openai_agent import OpenAICompatibleAgent, classify_openai_error, openai_retry_after
-from evalkit.retry import RetryPolicy
-from evalkit.runner import run_experiment
-from evalkit.scorers import score_trials
+from agenteval.models import EvaluationCase
+from agenteval.openai_agent import OpenAICompatibleAgent, classify_openai_error, openai_retry_after
+from agenteval.retry import RetryPolicy
+from agenteval.runner import run_experiment
+from agenteval.scorers import score_trials
 
 class FakeCompletions:
     def __init__(self, responses):

@@ -29,7 +29,7 @@ Failures:         none
 
 **Dashboard:** pending — the React/Vite dashboard code is in this repo (`dashboard/`), but it has not been deployed as a Render Static Site yet, so there is no public dashboard URL. This section will link it once it is live.
 
-Architecture: FastAPI + SQLite on Render (no persistent disk), behind a React/Vite dashboard. The production database is a plain SQLite file (`evalkit.db`) on the service's ephemeral filesystem, so data does not survive a redeploy or restart. [`render.yaml`](render.yaml) describes this same setup. A persistent disk (or a Postgres migration) is future work, not part of this deployment.
+Architecture: FastAPI + SQLite on Render (no persistent disk), behind a React/Vite dashboard. The production database is a plain SQLite file (`agenteval.db`) on the service's ephemeral filesystem, so data does not survive a redeploy or restart. [`render.yaml`](render.yaml) describes this same setup. A persistent disk (or a Postgres migration) is future work, not part of this deployment.
 
 The backend runs on Render's Free tier, which sleeps after a period of inactivity: the first request after a while can take around 50 seconds (cold start) before responding. That is expected, not an outage.
 
@@ -38,7 +38,7 @@ The backend runs on Render's Free tier, which sleeps after a period of inactivit
 ```bash
 pip install -e ".[dev]"
 python -m pytest
-uvicorn evalkit.api:app --reload
+uvicorn agenteval.api:app --reload
 curl http://127.0.0.1:8000/health
 ```
 
@@ -90,25 +90,25 @@ flowchart LR
 
 ## LLM judge, checked against your own labels
 
-Some answers can't be scored by matching strings: "3 years" answers "How long is the warranty?" when the expected answer is "3", and a sentence can name only facts from its sources and still draw a conclusion they don't support. `evalkit.judge` asks a second model, `llama-3.3-70b-versatile` on Groq by default, for a pass or fail verdict on a saved experiment's answers, under one of two rubrics:
+Some answers can't be scored by matching strings: "3 years" answers "How long is the warranty?" when the expected answer is "3", and a sentence can name only facts from its sources and still draw a conclusion they don't support. `agenteval.judge` asks a second model, `llama-3.3-70b-versatile` on Groq by default, for a pass or fail verdict on a saved experiment's answers, under one of two rubrics:
 
 - `groundedness`: is every claim in the answer supported by the tool results the agent received?
 - `correctness`: does the answer say the same thing as the expected answer, whatever the wording?
 
 ```bash
-.venv\Scripts\python -m evalkit.judge 12 --rubric groundedness
+.venv\Scripts\python -m agenteval.judge 12 --rubric groundedness
 ```
 
-A judge is a model too, so its scores are only as good as its agreement with a person. `evalkit.calibrate` measures that agreement. You label a fixed random sample yourself, seeing the same material as the judge and never its verdict. The labels are saved as you go, so labelling can stop and resume. The command then reports how often you and the judge agree, Cohen's kappa (agreement beyond chance, which a judge that passes everything can't fake), both pass rates, and every disagreement with the judge's reason:
+A judge is a model too, so its scores are only as good as its agreement with a person. `agenteval.calibrate` measures that agreement. You label a fixed random sample yourself, seeing the same material as the judge and never its verdict. The labels are saved as you go, so labelling can stop and resume. The command then reports how often you and the judge agree, Cohen's kappa (agreement beyond chance, which a judge that passes everything can't fake), both pass rates, and every disagreement with the judge's reason:
 
 ```bash
-.venv\Scripts\python -m evalkit.calibrate label 12 --rubric groundedness --sample 50
+.venv\Scripts\python -m agenteval.calibrate label 12 --rubric groundedness --sample 50
 ```
 ```bash
-.venv\Scripts\python -m evalkit.calibrate agree 12 --rubric groundedness
+.venv\Scripts\python -m agenteval.calibrate agree 12 --rubric groundedness
 ```
 
-Judge scores are stored as `judge_<rubric>` and tagged with a hash of the judge's model and prompt, since agreement measured on one judge says nothing about another. `evalkit.rescore` replaces only the built-in scorers' scores, so it never throws away a judge's paid-for scores. The judge's prompt treats the material as data, which matters because the `rag` corpus carries prompt injections and they reach the judge as sources.
+Judge scores are stored as `judge_<rubric>` and tagged with a hash of the judge's model and prompt, since agreement measured on one judge says nothing about another. `agenteval.rescore` replaces only the built-in scorers' scores, so it never throws away a judge's paid-for scores. The judge's prompt treats the material as data, which matters because the `rag` corpus carries prompt injections and they reach the judge as sources.
 
 ## Reliability features
 
@@ -140,10 +140,10 @@ Run the tests. They need no API keys or network:
 Run an experiment with the mock agent, then view its report:
 
 ```bash
-.venv\Scripts\python -m evalkit.run --name my-first-run
+.venv\Scripts\python -m agenteval.run --name my-first-run
 ```
 ```bash
-.venv\Scripts\python -m evalkit.report 1
+.venv\Scripts\python -m agenteval.report 1
 ```
 
 ### Using a real model
@@ -156,25 +156,25 @@ Set an API key as an environment variable. Never put keys in code; `.env` is git
 | `--agent gemini` | `GEMINI_API_KEY` from aistudio.google.com | 20 requests/day for gemini-2.5-flash |
 
 ```bash
-.venv\Scripts\python -m evalkit.run --agent groq --name groq-run --attempts 3
+.venv\Scripts\python -m agenteval.run --agent groq --name groq-run --attempts 3
 ```
 
-Useful options: `--model`, `--dataset arithmetic|mixed|hard|rag`, `--concurrency`, `--rpm` (requests per minute), `--tpm` (tokens per minute), `--timeout`, `--max-steps`, `--temperature`, `--prompt-file`. For the mock agent: `--tool-error-rate`, `--rate-limit-rate`, `--hallucination-rate`, `--hang-rate`. See `python -m evalkit.run --help`.
+Useful options: `--model`, `--dataset arithmetic|mixed|hard|rag`, `--concurrency`, `--rpm` (requests per minute), `--tpm` (tokens per minute), `--timeout`, `--max-steps`, `--temperature`, `--prompt-file`. For the mock agent: `--tool-error-rate`, `--rate-limit-rate`, `--hallucination-rate`, `--hang-rate`. See `python -m agenteval.run --help`.
 
 Re-score a saved experiment after changing a scorer, without calling the model again:
 
 ```bash
-.venv\Scripts\python -m evalkit.rescore 5
+.venv\Scripts\python -m agenteval.rescore 5
 ```
 
-To use a model that isn't in the price table, add it to `PRICES` in [`evalkit/cost.py`](evalkit/cost.py). The run refuses to start without a price rather than reporting a misleading $0.
+To use a model that isn't in the price table, add it to `PRICES` in [`agenteval/cost.py`](agenteval/cost.py). The run refuses to start without a price rather than reporting a misleading $0.
 
 ## Evaluate your own agent
 
 Your agent stays your code. Write it as a function that takes the question and returns the answer, and wrap its model calls in `llm_call` and its tool calls in `tool`:
 
 ```python
-from evalkit import llm_call, tool
+from agenteval import llm_call, tool
 
 async def answer(question: str) -> str:
     with llm_call("gpt-4o-mini") as call:
@@ -185,7 +185,7 @@ async def answer(question: str) -> str:
     return final_answer
 ```
 
-Each wrapped call becomes a step in the trace, with its time, tokens, arguments, result or error. Everything else then works as for the built-in agents: failures labelled by the step that raised, every scorer, the report, `evalkit.compare` and the gate. Outside an evaluation the helpers just run what they wrap.
+Each wrapped call becomes a step in the trace, with its time, tokens, arguments, result or error. Everything else then works as for the built-in agents: failures labelled by the step that raised, every scorer, the report, `agenteval.compare` and the gate. Outside an evaluation the helpers just run what they wrap.
 
 Write your questions as JSON lines. Only `input` and `expected_output` are required, and every other field of the `hard` dataset is available (`expected_tools`, `category`, `must_not_contain`, `expects_tool_error`, `relevant_docs`):
 
@@ -196,18 +196,18 @@ Write your questions as JSON lines. Only `input` and `expected_output` are requi
 Then run it:
 
 ```bash
-.venv\Scripts\python -m evalkit.run --agent my_project.agents:answer --model gpt-4o-mini --price 0.15 0.60 --dataset my_cases.jsonl
+.venv\Scripts\python -m agenteval.run --agent my_project.agents:answer --model gpt-4o-mini --price 0.15 0.60 --dataset my_cases.jsonl
 ```
 
 - `--agent module.path:name` names a function (sync or async; a parameter called `case` gets the whole case instead of the question), or an object with the built-in agents' `run(case, attempt, tracer)` method.
 - `--model` names the model `llm_call` uses by default. If it isn't in the price table, pass `--price INPUT OUTPUT` in dollars per million tokens, or `--price 0 0` if you don't track cost.
-- A hash of the agent's source file is part of its version, so `evalkit.compare` can test two versions of your code even when the model and prompt are the same.
-- Raise `evalkit.ToolArgumentError` for arguments a tool can't accept: it's scored as the agent's bad call, not the tool's failure.
+- A hash of the agent's source file is part of its version, so `agenteval.compare` can test two versions of your code even when the model and prompt are the same.
+- Raise `agenteval.ToolArgumentError` for arguments a tool can't accept: it's scored as the agent's bad call, not the tool's failure.
 
 To try it without an API key, [`examples/quickstart_agent.py`](examples/quickstart_agent.py) is a rule-based agent that gets two of its eight cases wrong on purpose. [`examples/groq_agent.py`](examples/groq_agent.py) is a real tool-calling LLM agent to copy from.
 
 ```bash
-.venv\Scripts\python -m evalkit.run --agent examples.quickstart_agent:answer --model rules --price 0 0 --dataset examples/quickstart_cases.jsonl
+.venv\Scripts\python -m agenteval.run --agent examples.quickstart_agent:answer --model rules --price 0 0 --dataset examples/quickstart_cases.jsonl
 ```
 
 ## Datasets
@@ -233,10 +233,10 @@ The categories: `single_doc` (baseline), `distractor` (Kestrel vs. Kestrel Max, 
 .venv\Scripts\python -m pip install -e ".[rag]"
 ```
 ```bash
-.venv\Scripts\python -m evalkit.run --agent groq --dataset rag --name rag-run --top-k 4
+.venv\Scripts\python -m agenteval.run --agent groq --dataset rag --name rag-run --top-k 4
 ```
 
-`--top-k` sets how many documents each search returns, and `--embedding` the model behind the index: `minilm` (semantic, ChromaDB's default, an 80 MB download on first use) or `hashing` (word matching, no download, used by the tests). Both, and a hash of the corpus, are part of the agent's config, so changing one is a new version that `evalkit.compare` can test. Searches are recorded whole in the trace, so the documents an answer could have come from can always be checked. The corpus and cases are built by [`scripts/build_rag_dataset.py`](scripts/build_rag_dataset.py).
+`--top-k` sets how many documents each search returns, and `--embedding` the model behind the index: `minilm` (semantic, ChromaDB's default, an 80 MB download on first use) or `hashing` (word matching, no download, used by the tests). Both, and a hash of the corpus, are part of the agent's config, so changing one is a new version that `agenteval.compare` can test. Searches are recorded whole in the trace, so the documents an answer could have come from can always be checked. The corpus and cases are built by [`scripts/build_rag_dataset.py`](scripts/build_rag_dataset.py).
 
 How often the search alone finds every relevant document, using each question as the query (a model writes its own queries, so its results will differ):
 
@@ -261,16 +261,16 @@ The tool-error and hallucination tests were also seen to **fail** when the injec
 
 ## Comparing versions
 
-A "version" is any change to the agent: its prompt, model, settings or tools. `evalkit.compare` answers one question: **is B really better than A, or did it just get lucky?**
+A "version" is any change to the agent: its prompt, model, settings or tools. `agenteval.compare` answers one question: **is B really better than A, or did it just get lucky?**
 
 ```bash
-.venv\Scripts\python -m evalkit.run --agent groq --dataset hard --name old --prompt-file prompts/v1.txt --attempts 3
+.venv\Scripts\python -m agenteval.run --agent groq --dataset hard --name old --prompt-file prompts/v1.txt --attempts 3
 ```
 ```bash
-.venv\Scripts\python -m evalkit.run --agent groq --dataset hard --name new --prompt-file prompts/v2.txt --attempts 3
+.venv\Scripts\python -m agenteval.run --agent groq --dataset hard --name new --prompt-file prompts/v2.txt --attempts 3
 ```
 ```bash
-.venv\Scripts\python -m evalkit.compare 8 7
+.venv\Scripts\python -m agenteval.compare 8 7
 ```
 
 Run both versions at the same time if you can, so they face the same conditions.
@@ -316,7 +316,7 @@ Use an odd number of attempts, and more cases to catch smaller drops. The mock's
 
 ## Regression gate
 
-`evalkit.gate` turns a comparison into a decision, and [`.github/workflows/agent-eval.yml`](.github/workflows/agent-eval.yml) runs it on pull requests labelled `run-agent-eval` that change the agent, its prompts or the `hard` dataset. It runs the change, compares it with a stored baseline from `main`, then posts the result as a PR comment.
+`agenteval.gate` turns a comparison into a decision, and [`.github/workflows/agent-eval.yml`](.github/workflows/agent-eval.yml) runs it on pull requests labelled `run-agent-eval` that change the agent, its prompts or the `hard` dataset. It runs the change, compares it with a stored baseline from `main`, then posts the result as a PR comment.
 
 | Result | Decision | Exit code |
 |---|---|---|
@@ -328,7 +328,7 @@ Use an odd number of attempts, and more cases to catch smaller drops. The mock's
 | Different datasets, or over 10% infrastructure failures | Can't judge | 2 |
 
 ```bash
-.venv\Scripts\python -m evalkit.gate baseline.db candidate.db --markdown report.md
+.venv\Scripts\python -m agenteval.gate baseline.db candidate.db --markdown report.md
 ```
 
 A full run uses about 140,000 tokens, too many to run `main` again on every PR within a free daily quota. So [`agent-eval-baseline.yml`](.github/workflows/agent-eval-baseline.yml) runs `main` when the agent changes and once a week, and stores the results. A run damaged by rate limits never replaces the last good baseline. The trade-off is that the two runs no longer happen at the same time, and the report warns when the baseline is over 24 hours old.
@@ -372,7 +372,7 @@ Lessons:
 ## Project structure
 
 ```
-evalkit/
+agenteval/
   models.py        EvaluationCase, Span, Trial, Score, AgentConfig, Experiment
   tracer.py        records each step as a span
   runner.py        runs cases × attempts concurrently, with timeouts and failure labels

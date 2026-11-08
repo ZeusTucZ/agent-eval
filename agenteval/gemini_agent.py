@@ -5,11 +5,11 @@ from typing import Any
 from google import genai
 from google.genai import errors, types
 
-from evalkit.models import EvaluationCase
-from evalkit.retry import RateLimiter, RetryPolicy, call_llm_with_retries
-from evalkit.runner import EmptyOutput, MaxStepsExceeded, OutputTruncated, QuotaExhausted
-from evalkit.tools import DEFAULT_TOOLS, SYSTEM_PROMPT, ToolRegistry
-from evalkit.tracer import Tracer
+from agenteval.models import EvaluationCase
+from agenteval.retry import RateLimiter, RetryPolicy, call_llm_with_retries
+from agenteval.runner import EmptyOutput, MaxStepsExceeded, OutputTruncated, QuotaExhausted
+from agenteval.tools import DEFAULT_TOOLS, SYSTEM_PROMPT, ToolRegistry
+from agenteval.tracer import Tracer
 
 def _error_details(error: errors.APIError) -> list[dict[str, Any]]:
     if not isinstance(error.details, dict):

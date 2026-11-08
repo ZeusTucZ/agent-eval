@@ -3,9 +3,9 @@ import re
 from dataclasses import dataclass
 from random import Random
 
-from evalkit.models import EvaluationCase
-from evalkit.retry import RetryPolicy, call_llm_with_retries
-from evalkit.tracer import Tracer
+from agenteval.models import EvaluationCase
+from agenteval.retry import RetryPolicy, call_llm_with_retries
+from agenteval.tracer import Tracer
 
 @dataclass
 class FaultConfig:

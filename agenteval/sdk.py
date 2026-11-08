@@ -3,7 +3,7 @@
 Write the agent as a function that takes the question and returns the answer, and wrap
 its model calls and tool calls so each one is recorded as a step of the trial:
 
-    from evalkit import llm_call, tool
+    from agenteval import llm_call, tool
 
     async def my_agent(question: str) -> str:
         with llm_call("gpt-4o-mini") as call:
@@ -15,7 +15,7 @@ its model calls and tool calls so each one is recorded as a step of the trial:
 
 Then run it like a built-in agent:
 
-    python -m evalkit.run --agent my_project.agents:my_agent --dataset my_cases.jsonl
+    python -m agenteval.run --agent my_project.agents:my_agent --dataset my_cases.jsonl
 
 Steps recorded this way get the same treatment as the built-in agents' steps: latency,
 cost from the tokens, failures labelled by the step that raised, every scorer, the
@@ -35,10 +35,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from evalkit.models import EvaluationCase, Span
-from evalkit.runner import Agent, EmptyOutput
-from evalkit.tools import ToolArgumentError  # noqa: F401 - re-exported: raise it for invalid arguments
-from evalkit.tracer import Tracer, clip
+from agenteval.models import EvaluationCase, Span
+from agenteval.runner import Agent, EmptyOutput
+from agenteval.tools import ToolArgumentError  # noqa: F401 - re-exported: raise it for invalid arguments
+from agenteval.tracer import Tracer, clip
 
 # Tool results are recorded up to this length: scorers such as tool_faithfulness read them.
 MAX_RECORDED_TOOL_OUTPUT = 4000
@@ -48,7 +48,7 @@ class _Trial:
     tracer: Tracer
     model: str  # the run's --model, used when llm_call isn't given one
 
-_active: ContextVar[_Trial | None] = ContextVar("evalkit_trial", default=None)
+_active: ContextVar[_Trial | None] = ContextVar("agenteval_trial", default=None)
 
 class LLMCall:
     """What `llm_call` yields: report the call's tokens so its cost can be counted."""
@@ -81,7 +81,7 @@ async def tool(name: str, function: Callable[..., Any], /, *args: Any, **kwargs:
 
     `function` may be sync or async. An exception is recorded as the tool's error and raised
     again, so the agent can handle it (and a trial that ends on it is labelled "tool_error").
-    Raise evalkit.ToolArgumentError for arguments the tool can't accept: it is scored as a
+    Raise agenteval.ToolArgumentError for arguments the tool can't accept: it is scored as a
     bad call by the agent rather than a failure of the tool.
     """
     trial = _active.get()
@@ -130,7 +130,7 @@ def load_agent(spec: str, model: str) -> tuple[Agent, str]:
 
     `name` can be a function (wrapped in FunctionAgent) or an object with the built-in
     agents' `run(case, attempt, tracer)` method. The source hash goes in the agent's config,
-    so editing the agent's code makes a new version that evalkit.compare can tell apart.
+    so editing the agent's code makes a new version that agenteval.compare can tell apart.
     """
     module_name, _, attribute = spec.partition(":")
     if not module_name or not attribute:

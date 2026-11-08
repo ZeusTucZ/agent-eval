@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from random import Random
 from typing import TypeVar
 
-from evalkit.tracer import Tracer
+from agenteval.tracer import Tracer
 
 T = TypeVar("T")
 

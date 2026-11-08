@@ -3,14 +3,14 @@ from random import Random
 
 from google.genai import errors
 
-from evalkit.gemini_agent import GeminiAgent, classify_gemini_error, gemini_retry_after
-from evalkit.mock_agent import FaultConfig, MockAgent
-from evalkit.models import EvaluationCase, Span, Trial
-from evalkit.runner import run_experiment
-from evalkit.sample_data import arithmetic_cases
-from evalkit.report import latency_percentiles
-from evalkit.retry import RateLimiter, RetryPolicy, call_llm_with_retries
-from evalkit.tracer import Tracer
+from agenteval.gemini_agent import GeminiAgent, classify_gemini_error, gemini_retry_after
+from agenteval.mock_agent import FaultConfig, MockAgent
+from agenteval.models import EvaluationCase, Span, Trial
+from agenteval.runner import run_experiment
+from agenteval.sample_data import arithmetic_cases
+from agenteval.report import latency_percentiles
+from agenteval.retry import RateLimiter, RetryPolicy, call_llm_with_retries
+from agenteval.tracer import Tracer
 
 class FakeTime:
     """A clock that only moves when something sleeps, so tests are instant and exact."""

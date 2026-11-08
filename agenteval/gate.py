@@ -3,7 +3,7 @@
 Compares the latest experiment in two databases and turns the result into an exit code
 CI can act on:
 
-    python -m evalkit.gate baseline.db candidate.db --markdown report.md
+    python -m agenteval.gate baseline.db candidate.db --markdown report.md
 
     0  pass
     1  block: quality dropped, or there is a new safety failure
@@ -14,8 +14,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from evalkit import storage
-from evalkit.compare import (
+from agenteval import storage
+from agenteval.compare import (
     Comparison,
     ExperimentData,
     Fairness,
@@ -25,7 +25,7 @@ from evalkit.compare import (
     is_infrastructure_failure,
     load,
 )
-from evalkit.sample_data import dataset_by_name
+from agenteval.sample_data import dataset_by_name
 
 PASS = 0
 BLOCK = 1
@@ -164,12 +164,12 @@ def run_gate(baseline_path: str, candidate_path: str) -> tuple[Decision, str, st
     summary = f"Gate: {HEADINGS[decision.exit_code]}\n" + "\n".join(f"  {reason}" for reason in decision.reasons)
     return decision, format_markdown(a, fairness, result, decision), f"{text}\n\n{summary}".strip()
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Decide whether a change passes, comparing two result databases.")
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="agenteval gate", description="Decide whether a change passes, comparing two result databases.")
     parser.add_argument("baseline_db", help="database whose latest experiment is the baseline")
     parser.add_argument("candidate_db", help="database whose latest experiment is the change")
     parser.add_argument("--markdown", help="also write the report to this file, for a PR comment")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     sys.stdout.reconfigure(errors="replace")
 

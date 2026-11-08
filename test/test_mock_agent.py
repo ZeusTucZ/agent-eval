@@ -1,11 +1,11 @@
 import asyncio
 
-from evalkit.mock_agent import FaultConfig, MockAgent
-from evalkit.models import Trial
-from evalkit.report import latency_percentiles, mean_score, tool_error_rate
-from evalkit.runner import run_experiment
-from evalkit.sample_data import arithmetic_cases
-from evalkit.scorers import exact_match
+from agenteval.mock_agent import FaultConfig, MockAgent
+from agenteval.models import Trial
+from agenteval.report import latency_percentiles, mean_score, tool_error_rate
+from agenteval.runner import run_experiment
+from agenteval.sample_data import arithmetic_cases
+from agenteval.scorers import exact_match
 
 dataset_of_500_cases = arithmetic_cases(500)
 

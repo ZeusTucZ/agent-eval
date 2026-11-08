@@ -18,9 +18,9 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from evalkit.tools import DEFAULT_TOOLS, Tool
+from agenteval.tools import DEFAULT_TOOLS, Tool
 
-CORPUS_PATH = Path(__file__).resolve().parent.parent / "datasets" / "rag_corpus.jsonl"
+CORPUS_PATH = Path(__file__).resolve().parent / "data" / "rag_corpus.jsonl"
 
 # "minilm" is ChromaDB's default model (all-MiniLM-L6-v2, downloaded on first use).
 # "hashing" matches words, not meaning: it needs no download, so tests use it, and it is a

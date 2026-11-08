@@ -5,11 +5,11 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from evalkit import storage
-from evalkit.cost import trial_cost
-from evalkit.models import AgentConfig, EvaluationCase, Experiment, Score, Trial
-from evalkit.sample_data import dataset_by_name
-from evalkit.stats import Interval, bootstrap_mean, mcnemar_exact
+from agenteval import storage
+from agenteval.cost import trial_cost
+from agenteval.models import AgentConfig, EvaluationCase, Experiment, Score, Trial
+from agenteval.sample_data import dataset_by_name
+from agenteval.stats import Interval, bootstrap_mean, mcnemar_exact
 
 SIGNIFICANCE_LEVEL = 0.05
 # A cost or latency rise smaller than this is noise as far as a decision goes, even if it's real.
@@ -313,12 +313,12 @@ def format_comparison(a: ExperimentData, b: ExperimentData, fairness: Fairness, 
     lines += ["", f"Verdict: {result.verdict}. {result.reason}."]
     return "\n".join(lines)
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Compare two saved experiments: is B really better than A?")
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="agenteval compare", description="Compare two saved experiments: is B really better than A?")
     parser.add_argument("a", type=int, help="the baseline experiment")
     parser.add_argument("b", type=int, help="the experiment to judge")
-    parser.add_argument("--db", default="evalkit.db")
-    args = parser.parse_args()
+    parser.add_argument("--db", default="agenteval.db")
+    args = parser.parse_args(argv)
 
     # Model outputs can hold characters a Windows console can't show.
     sys.stdout.reconfigure(errors="replace")

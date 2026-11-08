@@ -11,17 +11,17 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
     paths:
-      - "evalkit/**"
+      - "agenteval/**"
       # Not part of the agent the gate runs: the HTTP API, the LLM judge, calibration,
       # re-scoring and the rag dataset's search tool.
-      - "!evalkit/api.py"
-      - "!evalkit/config.py"
-      - "!evalkit/judge.py"
-      - "!evalkit/calibrate.py"
-      - "!evalkit/rescore.py"
-      - "!evalkit/rag.py"
+      - "!agenteval/api.py"
+      - "!agenteval/config.py"
+      - "!agenteval/judge.py"
+      - "!agenteval/calibrate.py"
+      - "!agenteval/rescore.py"
+      - "!agenteval/rag.py"
       - "prompts/**"
-      - "datasets/hard.jsonl"
+      - "agenteval/data/hard.jsonl"
       - ".github/workflows/agent-eval.yml"
   workflow_dispatch:
 
@@ -98,7 +98,7 @@ jobs:
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          python -m evalkit.run --agent groq --dataset "$DATASET" --attempts "$ATTEMPTS" \
+          python -m agenteval.run --agent groq --dataset "$DATASET" --attempts "$ATTEMPTS" \
             --rpm "$RPM" --timeout 900 --name candidate --db candidate.db \
             || echo "::warning::The run failed."
 
@@ -107,7 +107,7 @@ jobs:
         if: steps.key.outputs.skip != 'true'
         run: |
           set +e
-          python -m evalkit.gate baseline.db candidate.db --markdown report.md
+          python -m agenteval.gate baseline.db candidate.db --markdown report.md
           echo "code=$?" >> "$GITHUB_OUTPUT"
           cat report.md >> "$GITHUB_STEP_SUMMARY"
 
@@ -123,7 +123,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      # Model output in the report is escaped by evalkit.gate, because it's untrusted text.
+      # Model output in the report is escaped by agenteval.gate, because it's untrusted text.
       - name: Comment on the pull request
         if: steps.key.outputs.skip != 'true' && github.event_name == 'pull_request' && steps.gate.outcome == 'success'
         env:

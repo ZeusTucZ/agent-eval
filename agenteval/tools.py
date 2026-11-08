@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
-from evalkit.tracer import MAX_RECORDED_TEXT, Tracer, clip
+from agenteval.tracer import MAX_RECORDED_TEXT, Tracer, clip
 
 class UnknownToolError(Exception):
     pass

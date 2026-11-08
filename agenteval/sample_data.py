@@ -1,11 +1,12 @@
 import json
+from random import Random
 from pathlib import Path
 
-from evalkit.models import EvaluationCase
-from evalkit.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, rag_tools
-from evalkit.tools import DEFAULT_TOOLS, HARD_TOOLS, Tool
+from agenteval.models import EvaluationCase
+from agenteval.rag import DEFAULT_EMBEDDING, DEFAULT_TOP_K, rag_tools
+from agenteval.tools import DEFAULT_TOOLS, HARD_TOOLS, Tool
 
-DATASETS_DIR = Path(__file__).resolve().parent.parent / "datasets"
+DATASETS_DIR = Path(__file__).resolve().parent / "data"  # shipped inside the package
 
 def load_jsonl(path: Path) -> list[EvaluationCase]:
     return [
@@ -15,7 +16,7 @@ def load_jsonl(path: Path) -> list[EvaluationCase]:
     ]
 
 def load_dataset_file(path: Path) -> list[EvaluationCase]:
-    """Your own dataset: one JSON object per line, in the same form as datasets/hard.jsonl.
+    """Your own dataset: one JSON object per line, in the same form as the built-in hard dataset.
 
     Only "input" and "expected_output" are required. "id" defaults to the line number. Errors
     name the line, since a dataset is usually written by hand.
@@ -45,7 +46,42 @@ def load_dataset_file(path: Path) -> list[EvaluationCase]:
     return cases
 
 def is_dataset_file(name: str) -> bool:
-    return name.endswith(".jsonl")
+    return split_sample(name)[0].endswith(".jsonl")
+
+SAMPLE_MARK = "#sample="
+
+def sample_name(name: str, size: int, seed: int) -> str:
+    """The name a sampled dataset is stored under, e.g. "hard#sample=20,seed=0": enough to
+    rebuild exactly the same cases later."""
+    return f"{name}{SAMPLE_MARK}{size},seed={seed}"
+
+def split_sample(name: str) -> tuple[str, tuple[int, int] | None]:
+    """("hard", (20, 0)) for "hard#sample=20,seed=0"; (name, None) when it isn't a sample."""
+    base, mark, rest = name.partition(SAMPLE_MARK)
+    if not mark:
+        return name, None
+    size, _, seed = rest.partition(",seed=")
+    return base, (int(size), int(seed or 0))
+
+def sample_cases(cases: list[EvaluationCase], size: int, seed: int = 0) -> list[EvaluationCase]:
+    """A fixed random sample, spread across categories in proportion to their size, so a
+    quick run still covers every kind of question. In the dataset's original order."""
+    if size >= len(cases):
+        return list(cases)
+    by_category: dict[str, list[EvaluationCase]] = {}
+    for case in cases:
+        by_category.setdefault(case.category, []).append(case)
+
+    random = Random(seed)
+    # Largest remainder: each category gets its share, rounded so the total is exactly `size`.
+    shares = {name: size * len(group) / len(cases) for name, group in by_category.items()}
+    counts = {name: int(share) for name, share in shares.items()}
+    leftovers = sorted(shares, key=lambda name: (shares[name] - counts[name], random.random()), reverse=True)
+    for name in leftovers[: size - sum(counts.values())]:
+        counts[name] += 1
+
+    chosen = {case.id for name, group in by_category.items() for case in random.sample(group, counts[name])}
+    return [case for case in cases if case.id in chosen]
 
 def hard_cases() -> list[EvaluationCase]:
     """About 55 cases in 10 categories, built by scripts/build_hard_dataset.py."""
@@ -75,7 +111,11 @@ def arithmetic_cases(count: int) -> list[EvaluationCase]:
 
 def dataset_by_name(name: str) -> list[EvaluationCase]:
     """Rebuild a dataset from the name stored with an experiment, e.g. "mixed", "arithmetic-100",
-    or the path of your own .jsonl file, relative to where the run was started."""
+    the path of your own .jsonl file (relative to where the run was started), or a sample of
+    any of those, e.g. "hard#sample=20,seed=0"."""
+    base, sample = split_sample(name)
+    if sample is not None:
+        return sample_cases(dataset_by_name(base), *sample)
     if is_dataset_file(name):
         return load_dataset_file(Path(name))
     if name == "mixed":

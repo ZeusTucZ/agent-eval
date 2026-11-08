@@ -1,7 +1,7 @@
-// Types mirror exactly what evalkit/api.py returns. No field here is
+// Types mirror exactly what agenteval/api.py returns. No field here is
 // invented: if the API does not return it, it is not rendered as if it did.
-// See experiment_summary() in evalkit/api.py and Trial/Span/Score in
-// evalkit/models.py. Note Trial.model_dump() does not include the
+// See experiment_summary() in agenteval/api.py and Trial/Span/Score in
+// agenteval/models.py. Note Trial.model_dump() does not include the
 // duration_ms / working_ms properties, so durations are derived from the
 // returned spans (max end - min start) where shown.
 
