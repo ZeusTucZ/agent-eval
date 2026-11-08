@@ -109,12 +109,14 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
-# Database connection (one per request; SQLite connections are not shared
-# across the threads FastAPI runs sync endpoints in).
+# Database connection (one per request, never shared between requests).
 # ---------------------------------------------------------------------------
 
 def get_conn():
-    conn = storage.connect(config.database_path())
+    # FastAPI opens this dependency, runs the endpoint and closes it from worker threads that
+    # can differ, so SQLite's same-thread check fails at random with a 500. Each connection
+    # belongs to one request and is used by one thread at a time, so the check can go.
+    conn = storage.connect(config.database_path(), check_same_thread=False)
     try:
         yield conn
     finally:
@@ -194,7 +196,7 @@ def _load_or_404(conn: sqlite3.Connection, experiment_id: int) -> Experiment:
     try:
         return storage.load_experiment(conn, experiment_id)
     except LookupError:
-        raise HTTPException(status_code=404, detail=f"no experiment with id {experiment_id}")
+        raise HTTPException(status_code=404, detail=f"no experiment with id {experiment_id}") from None
 
 
 # ---------------------------------------------------------------------------
@@ -477,7 +479,7 @@ def rescore_experiment(
         raise HTTPException(
             status_code=400,
             detail=f"unknown dataset {experiment.dataset_name!r}; cannot re-score",
-        )
+        ) from None
     scores = score_trials(dataset, trials)
     storage.replace_scores(conn, experiment_id, scores)
     return experiment_summary(experiment, trials, scores)

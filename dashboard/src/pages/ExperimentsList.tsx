@@ -1,17 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { ExperimentSummary } from "../types";
-import { pct, usd } from "../format";
+import { ms, pct, rateTone, relativeTime, usd } from "../format";
 
 interface Props {
   onOpen: (id: number) => void;
-  onNewRun?: () => void;
-}
-
-function passRateClass(rate: number): string {
-  if (rate >= 0.9) return "pill-good";
-  if (rate >= 0.7) return "pill-warn";
-  return "pill-bad";
+  onNewRun: () => void;
 }
 
 export default function ExperimentsList({ onOpen, onNewRun }: Props) {
@@ -25,82 +19,78 @@ export default function ExperimentsList({ onOpen, onNewRun }: Props) {
       .catch((err: Error) => setError(err.message));
   }, []);
 
-  if (error) return <p className="error">Could not load experiments: {error}</p>;
-  if (experiments === null) return <p>Loading experiments…</p>;
+  if (error) return <p className="notice error">Couldn&apos;t load experiments: {error}</p>;
+  if (experiments === null) return <p className="skeleton">Loading experiments…</p>;
+
   if (experiments.length === 0) {
     return (
-      <div className="empty-state">
-        <div className="empty-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 3h6M10 3v6.3L4.7 18a2 2 0 0 0 1.8 3h11a2 2 0 0 0 1.8-3L14 9.3V3" />
-            <path d="M7.5 14h9" />
-          </svg>
-        </div>
-        <p className="section-label">Getting started</p>
-        <h2>No experiments yet</h2>
-        <p>
-          Launch your first run — the mock agent on the arithmetic dataset needs no API
-          key and costs nothing.
-        </p>
-        {onNewRun ? (
-          <button type="button" className="btn-primary" onClick={onNewRun}>
-            Launch your first run →
-          </button>
-        ) : null}
+      <div className="empty">
+        <h1>No experiments yet</h1>
+        <p>Run the mock agent first: it needs no API key and costs nothing.</p>
+        <button type="button" className="primary" onClick={onNewRun}>
+          Start a run
+        </button>
       </div>
     );
   }
 
   return (
-    <div>
+    <>
       <div className="page-head">
         <div>
-          <p className="section-label">Results</p>
-          <h2>Experiments</h2>
-          <p>
-            {experiments.length} experiment{experiments.length === 1 ? "" : "s"} · click a
-            row for trials, latency and cost.
+          <h1>Experiments</h1>
+          <p className="meta">
+            {experiments.length} run{experiments.length === 1 ? "" : "s"}, newest first
           </p>
         </div>
+        <button type="button" className="primary" onClick={onNewRun}>
+          New run
+        </button>
       </div>
+
       <div className="table-wrap">
-        <table className="data-table">
+        <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Name</th>
-              <th>Dataset</th>
-              <th>Model</th>
-              <th>Trials</th>
-              <th>Pass rate</th>
-              <th>p50 / p95</th>
-              <th>Cost</th>
-              <th>Created</th>
+              <th>Experiment</th>
+              <th className="num">Pass rate</th>
+              <th className="num hide-sm">Latency p50</th>
+              <th className="num hide-sm">Cost</th>
+              <th className="num hide-sm">When</th>
             </tr>
           </thead>
           <tbody>
             {experiments.map((exp) => (
-              <tr key={exp.id} onClick={() => onOpen(exp.id)} className="clickable">
-                <td>{exp.id}</td>
-                <td><strong>{exp.name}</strong></td>
-                <td>{exp.dataset_name}</td>
-                <td>{exp.model}</td>
-                <td>{exp.trial_count}</td>
+              <tr key={exp.id} className="row-link" onClick={() => onOpen(exp.id)}>
                 <td>
-                  <span className={`pill ${passRateClass(exp.pass_rate)}`}>
-                    {pct(exp.pass_rate)}
-                  </span>
+                  {/* A real button, so the row can be opened from the keyboard too. */}
+                  <button
+                    type="button"
+                    className="row-title"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpen(exp.id);
+                    }}
+                  >
+                    {exp.name}
+                  </button>
+                  <div className="meta">
+                    {exp.model} · {exp.dataset_name} · {exp.trial_count} trials
+                  </div>
                 </td>
-                <td>
-                  {exp.latency_ms.p50.toFixed(0)} / {exp.latency_ms.p95.toFixed(0)} ms
+                <td className={`num ${rateTone(exp.pass_rate)}`}>
+                  <strong>{pct(exp.pass_rate)}</strong>
                 </td>
-                <td>{usd(exp.cost)}</td>
-                <td>{new Date(exp.created_at).toLocaleString()}</td>
+                <td className="num hide-sm">{ms(exp.latency_ms.p50)}</td>
+                <td className="num hide-sm">{usd(exp.cost)}</td>
+                <td className="num hide-sm muted" title={new Date(exp.created_at).toLocaleString()}>
+                  {relativeTime(exp.created_at)}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-    </div>
+    </>
   );
 }

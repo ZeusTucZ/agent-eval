@@ -22,3 +22,41 @@ jobs:
 
       - name: Run tests
         run: pytest -v
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install "ruff>=0.6"
+
+      # The rules are in pyproject.toml: real errors only, not style.
+      - name: Lint
+        run: ruff check --output-format github .
+
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # tsc type-checks the whole app before vite builds it, so a type error fails here
+      # instead of in Render's deploy.
+      - name: Type-check and build
+        run: npm run build

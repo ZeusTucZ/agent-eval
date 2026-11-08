@@ -290,3 +290,28 @@ def test_the_limit_is_per_client_and_uses_the_proxys_address():
     # The client can put anything first; the last entry is the one Render's proxy added.
     spoofed = SimpleNamespace(headers={"x-forwarded-for": "1.2.3.4, 203.0.113.9"}, client=None)
     assert client_address(spoofed) == "203.0.113.9"
+
+
+def test_a_request_connection_works_from_another_thread(tmp_path, monkeypatch):
+    # FastAPI may open get_conn, run the endpoint and close the connection on different
+    # worker threads. With SQLite's default same-thread check that failed at random with 500s.
+    import threading
+
+    from evalkit.api import get_conn
+
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "threads.db"))
+    dependency = get_conn()
+    conn = next(dependency)  # opened on this thread
+    errors = []
+
+    def use_and_close():
+        try:
+            conn.execute("SELECT COUNT(*) FROM experiments").fetchone()
+            dependency.close()  # runs the dependency's cleanup: conn.close()
+        except Exception as error:  # noqa: BLE001 - reported below
+            errors.append(error)
+
+    worker = threading.Thread(target=use_and_close)
+    worker.start()
+    worker.join()
+    assert errors == []
