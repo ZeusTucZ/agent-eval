@@ -1,0 +1,25 @@
+# Render Blueprint: New > Blueprint, pick this repo, and Render creates the
+# Web Service from this file instead of clicks in the dashboard.
+# Secrets are declared with `sync: false`: Render asks for their values in
+# its panel and never reads them from the repo. Do NOT put a real key here.
+services:
+  - type: web
+    name: agent-eval-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    disk:
+      name: agent-eval-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_PATH
+        value: /data/agent-eval.db
+      - key: API_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
