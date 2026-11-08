@@ -3,7 +3,7 @@ name: release
 # Publishes to PyPI when a version tag is pushed (git tag v1.0.0 && git push --tags), with the
 # dashboard built into the package so `agenteval ui` works after `pip install`.
 #
-# One-time setup, on pypi.org: add a "pending publisher" for the project agenteval-kit with
+# One-time setup, on pypi.org: add a "pending publisher" for the project zeustucz-agenteval with
 # this repository, workflow release.yml and environment pypi (trusted publishing: no API
 # token is stored anywhere). Then create the "pypi" environment in this repository's settings.
 on:

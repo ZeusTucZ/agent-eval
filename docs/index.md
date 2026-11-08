@@ -18,7 +18,7 @@ call and tool call, and tells you:
   a prompt tweak that only looked better by chance.
 
 ```bash
-pip install "agenteval-kit[server]"
+pip install "zeustucz-agenteval[server]"
 agenteval init      # an example agent, a few questions, a config
 agenteval run       # no API key needed for the example
 agenteval ui        # see it in your browser
@@ -49,4 +49,4 @@ Failures:         none
 
 !!! note "Names"
     The project is agent-eval, the Python package and command are `agenteval`, and you
-    install it from PyPI as `agenteval-kit` (the shorter names were taken).
+    install it from PyPI as `zeustucz-agenteval` (the shorter names were taken on PyPI).

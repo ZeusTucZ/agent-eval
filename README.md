@@ -14,7 +14,7 @@ set of questions, several times each, records every model call and tool call, an
 change really made it better**.
 
 ```bash
-pip install "agenteval-kit[server]"
+pip install "zeustucz-agenteval[server]"
 agenteval init      # an example agent, a few questions, a config
 agenteval run       # no API key needed for the example
 agenteval ui        # see it in your browser

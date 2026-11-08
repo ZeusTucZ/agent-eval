@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> None:
         import fastapi  # noqa: F401 - only checking it's installed
         import uvicorn
     except ImportError:
-        raise SystemExit('The dashboard needs the server extra: pip install "agenteval-kit[server]"') from None
+        raise SystemExit('The dashboard needs the server extra: pip install "zeustucz-agenteval[server]"') from None
     dashboard = find_dashboard()
     if dashboard is None:
         raise SystemExit("The dashboard isn't built. In a clone of the repository:\n"
