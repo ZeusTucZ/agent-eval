@@ -81,7 +81,7 @@ jobs:
       - uses: actions/checkout@v5
         if: steps.key.outputs.skip != 'true'
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         if: steps.key.outputs.skip != 'true'
         with:
           python-version: "3.12"
