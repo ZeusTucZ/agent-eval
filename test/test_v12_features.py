@@ -217,3 +217,64 @@ def test_push_says_what_is_missing(monkeypatch):
     monkeypatch.delenv("AGENTEVAL_SERVER", raising=False)
     with pytest.raises(SystemExit, match="--to"):
         share.main([])
+
+# --- Production monitoring ---
+
+def test_the_monitor_records_a_sample_of_real_calls_into_a_daily_experiment(tmp_path):
+    from agenteval import storage, tool
+    from agenteval.monitor import Monitor
+
+    monitor = Monitor(tmp_path / "prod.db", model="gpt-4o-mini", price=(0.15, 0.6), sample_rate=1.0, redact=True)
+
+    @monitor.watch
+    async def answer(question: str) -> str:
+        if "crash" in question:
+            await tool("lookup", lambda: 1 / 0)
+        await tool("lookup", lambda q: "3 years", question)
+        return "3 years, mail me at ana@example.com" if "mail" in question else "3 years"
+
+    assert asyncio.run(answer("Warranty?")) == "3 years"
+    assert asyncio.run(answer("Warranty? mail ana@example.com")).endswith("ana@example.com")  # untouched for the caller
+    with pytest.raises(ZeroDivisionError):
+        asyncio.run(answer("crash"))
+    monitor.flush()
+
+    conn = storage.connect(str(tmp_path / "prod.db"))
+    [experiment_id] = storage.list_experiment_ids(conn)
+    experiment = storage.load_experiment(conn, experiment_id)
+    assert experiment.name.startswith("production 20") and experiment.dataset_name == "production"
+    trials = storage.load_trials(conn, experiment_id)
+    assert [t.failure_type for t in trials] == [None, None, "tool_error"]
+    assert "ana@example.com" not in (trials[1].output or "") and "[EMAIL]" in trials[1].output
+    cases = storage.load_cases(conn, experiment_id)
+    assert [c.input for c in cases][0] == "Warranty?" and "ana@example.com" not in cases[1].input
+    scorers = {s.scorer for s in storage.load_scores(conn, experiment_id)}
+    assert "tool_execution" in scorers and "exact_match" not in scorers  # no expected answer in production
+
+def test_unsampled_calls_are_not_recorded_and_a_chat_is_kept_as_a_conversation(tmp_path):
+    from agenteval import storage
+    from agenteval.monitor import Monitor
+
+    never = Monitor(tmp_path / "none.db", model="m", price=(0, 0), sample_rate=0.0)
+    assert never.watch(lambda q: "x")("q") == "x"
+    never.flush()
+    assert not (tmp_path / "none.db").exists() or not storage.list_experiment_ids(storage.connect(str(tmp_path / "none.db")))
+
+    monitor = Monitor(tmp_path / "chat.db", model="m", price=(0, 0), sample_rate=1.0)
+    chat = monitor.watch(lambda messages: "Your order shipped.")
+    chat([{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello!"},
+          {"role": "user", "content": "Where is my order?"}])
+    monitor.flush()
+    conn = storage.connect(str(tmp_path / "chat.db"))
+    trial = storage.load_trials(conn, storage.list_experiment_ids(conn)[0])[0]
+    assert trial.transcript[-1] == {"role": "assistant", "content": "Your order shipped."}
+    assert storage.load_cases(conn, storage.list_experiment_ids(conn)[0])[0].input == "Where is my order?"
+    with pytest.raises(ValueError):
+        Monitor(model="m", sample_rate=2)
+
+def test_redaction_covers_every_message_of_a_conversation():
+    from agenteval.privacy import redact_trial
+
+    trial = Trial(id=1, case_id=1, attempt=1, output="ok",
+                  transcript=[{"role": "user", "content": "I'm ana@example.com"}, {"role": "assistant", "content": "ok"}])
+    assert redact_trial(trial).transcript[0]["content"] == "I'm [EMAIL]"

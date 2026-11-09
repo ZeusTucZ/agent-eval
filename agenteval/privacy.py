@@ -35,4 +35,6 @@ def redact_trial(trial: Trial) -> Trial:
         })
         for span in trial.spans
     ]
-    return trial.model_copy(update={"output": redact(trial.output), "spans": spans})
+    transcript = None if trial.transcript is None else [
+        {**message, "content": redact(message.get("content")) or ""} for message in trial.transcript]
+    return trial.model_copy(update={"output": redact(trial.output), "spans": spans, "transcript": transcript})

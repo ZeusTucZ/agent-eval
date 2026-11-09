@@ -292,6 +292,13 @@ def load_experiment(conn: sqlite3.Connection, experiment_id: int) -> Experiment:
         custom_scorers=json.loads(row["custom_scorers_json"] or "[]"),
     )
 
+def save_cases(conn: sqlite3.Connection, experiment_id: int, cases: list[EvaluationCase]) -> None:
+    """Replace the cases kept with an experiment, for experiments whose cases grow as they run
+    (production monitoring adds one per sampled request)."""
+    with conn:
+        conn.execute("UPDATE experiments SET cases_json = ? WHERE id = ?",
+                     (json.dumps([case.model_dump(exclude_none=True) for case in cases]), experiment_id))
+
 def load_cases(conn: sqlite3.Connection, experiment_id: int) -> list[EvaluationCase] | None:
     """The cases saved with the experiment; None for experiments saved before they were kept."""
     row = conn.execute("SELECT cases_json FROM experiments WHERE id = ?", (experiment_id,)).fetchone()
