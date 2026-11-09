@@ -46,6 +46,13 @@ class Results:
     def experiment_id(self) -> int | None:
         return self.experiment.id
 
+    def push(self, url: str, token: str) -> int:
+        """Send this experiment to a shared agenteval server (see agenteval.share); returns its
+        id there."""
+        from agenteval.share import payload, send
+
+        return int(send(url, token, payload(self.experiment, self.trials, self.scores, self.cases))["id"])
+
     @property
     def summary(self) -> dict:
         """Everything the report shows, as a dict."""

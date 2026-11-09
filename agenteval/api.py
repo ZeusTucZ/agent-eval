@@ -309,6 +309,33 @@ def _summary(conn: sqlite3.Connection, experiment_id: int) -> dict:
     return summary
 
 
+# A pushed experiment's size limit: larger ones are almost certainly a mistake (or abuse).
+MAX_PUSHED_TRIALS = 50_000
+
+
+class ExperimentUpload(BaseModel):
+    experiment: Experiment
+    trials: list[Trial] = Field(max_length=MAX_PUSHED_TRIALS)
+    scores: list[Score]
+    cases: list[EvaluationCase] | None = None
+
+
+@app.post("/api/experiments", status_code=201)
+def upload_experiment(body: ExperimentUpload, conn: Conn, _token: None = Depends(require_token)) -> dict:
+    """An experiment run elsewhere (`agenteval push`), saved here under a new id so a team's
+    runs share one dashboard. Its trials keep their ids, so its scores still match them."""
+    trial_ids = {trial.id for trial in body.trials}
+    if len(trial_ids) != len(body.trials):
+        raise HTTPException(status_code=422, detail="trial ids must be unique")
+    if any(score.trial_id not in trial_ids for score in body.scores):
+        raise HTTPException(status_code=422, detail="every score must belong to one of the trials")
+    experiment = body.experiment.model_copy(update={"id": None})
+    if experiment.status == "running":
+        experiment = experiment.model_copy(update={"status": "interrupted"})  # nothing will finish it here
+    experiment_id = storage.save_experiment(conn, experiment, body.trials, body.scores, body.cases)
+    return _summary(conn, experiment_id)
+
+
 @app.get("/api/experiments")
 def list_experiments(
     conn: Conn,

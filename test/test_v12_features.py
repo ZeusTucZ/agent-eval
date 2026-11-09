@@ -175,3 +175,45 @@ def test_simulated_cases_keep_older_dataset_versions():
     case = EvaluationCase(id=1, input="q", expected_output="a")
     assert dataset_version([case]) == dataset_version([EvaluationCase(id=1, input="q", expected_output="a",
                                                                        simulated_user=None)])
+
+# --- Sharing experiments with a team server ---
+
+def test_push_copies_an_experiment_with_its_cases_to_the_shared_server(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from agenteval import evaluate, share, storage
+    from agenteval.api import app
+
+    local = tmp_path / "mine.db"
+    cases = [{"input": f"{n} + 1?", "expected_output": str(n + 1), "category": "sums"} for n in range(3)]
+    results = evaluate(lambda q: "2", cases, model="m", price=(0, 0), attempts=2, db=local, name="lorenzo-v2")
+
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "team.db"))
+    monkeypatch.setenv("API_TOKEN", "secret")
+    monkeypatch.delenv("READ_ONLY", raising=False)
+    with TestClient(app) as client:
+        def fake_send(url, token, body, timeout=60.0):
+            response = client.post("/api/experiments", json=body, headers={"X-API-Token": token})
+            if response.status_code >= 400:
+                raise RuntimeError(response.json()["detail"])
+            return response.json()
+
+        monkeypatch.setattr(share, "send", fake_send)
+        summary = share.push(storage.connect(str(local)), results.experiment_id, "http://team", "secret")
+        assert summary["name"] == "lorenzo-v2" and summary["pass_rate"] == pytest.approx(1 / 3)
+        trials = client.get(f"/api/experiments/{summary['id']}/trials").json()["trials"]
+        assert {t["case"]["input"] for t in trials} == {c["input"] for c in cases}
+        assert results.push("http://team", "secret") == summary["id"] + 1
+
+        with pytest.raises(RuntimeError, match="X-API-Token"):
+            fake_send("http://team", "wrong", share.payload(results.experiment, results.trials, results.scores, None))
+        bad = share.payload(results.experiment, results.trials, results.scores, None)
+        bad["scores"][0]["trial_id"] = 999
+        assert client.post("/api/experiments", json=bad, headers={"X-API-Token": "secret"}).status_code == 422
+
+def test_push_says_what_is_missing(monkeypatch):
+    from agenteval import share
+
+    monkeypatch.delenv("AGENTEVAL_SERVER", raising=False)
+    with pytest.raises(SystemExit, match="--to"):
+        share.main([])

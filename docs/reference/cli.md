@@ -424,6 +424,25 @@ options:
   --db DB
 ```
 
+## push
+
+Send an experiment to your team's agenteval server.
+
+```
+usage: agenteval push [-h] [--db DB] [--to URL] [--token TOKEN] [experiment_id]
+
+Share experiments with your team: send them to an agenteval server everyone can open.
+
+positional arguments:
+  experiment_id  default: the latest experiment
+
+options:
+  -h, --help     show this help message and exit
+  --db DB
+  --to URL       the server's address (or AGENTEVAL_SERVER)
+  --token TOKEN  the server's API_TOKEN (or AGENTEVAL_TOKEN)
+```
+
 ## delete
 
 Delete an experiment.

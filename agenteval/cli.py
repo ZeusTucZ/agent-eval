@@ -43,6 +43,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "generate": ("agenteval.generate", "write test cases from your documents with an LLM"),
     "import": ("agenteval.traces", "import traces your agent already recorded, to score them"),
     "export": ("agenteval.traces", "export an experiment's trials (jsonl, or Ragas samples)"),
+    "push": ("agenteval.share", "send an experiment to your team's agenteval server"),
     "delete": ("agenteval.manage", "delete an experiment"),
     "ui": ("agenteval.ui", "open the dashboard in your browser (needs pyagenteval[server])"),
 }
