@@ -40,15 +40,17 @@ from anthropic import AsyncAnthropic
 from agenteval import wrap_anthropic
 
 client = wrap_anthropic(AsyncAnthropic())
-MODEL = "claude-sonnet-4-5"
+MODEL = "claude-opus-5-5"
 
 async def answer(question: str) -> str:
     message = await client.messages.create(
         model=MODEL,
-        max_tokens=256,
+        max_tokens=16000,
         system="Answer with only the answer, as briefly as possible.",
         messages=[{"role": "user", "content": question}],
     )
+    if message.stop_reason == "refusal":
+        return ""  # declined; scored as a wrong answer
     return "".join(block.text for block in message.content if block.type == "text")
 '''
 
@@ -136,7 +138,7 @@ RAG_CASES = """\
 TEMPLATES: dict[str, tuple[str | None, str | None, str, list[float], str | None, str | None]] = {
     "basic": (None, None, "example-model", [0, 0], None, None),
     "openai": (OPENAI_AGENT, SIMPLE_CASES, "gpt-4o-mini", [0.15, 0.60], None, "OPENAI_API_KEY"),
-    "anthropic": (ANTHROPIC_AGENT, SIMPLE_CASES, "claude-sonnet-4-5", [3.0, 15.0], "anthropic", "ANTHROPIC_API_KEY"),
+    "anthropic": (ANTHROPIC_AGENT, SIMPLE_CASES, "claude-opus-5-5", [4.0, 20.0], "anthropic", "ANTHROPIC_API_KEY"),
     "langgraph": (LANGGRAPH_AGENT, LANGGRAPH_CASES, "gpt-4o-mini", [0.15, 0.60], "langgraph langchain-openai",
                   "OPENAI_API_KEY"),
     "rag": (RAG_AGENT, RAG_CASES, "example-model", [0, 0], None, None),

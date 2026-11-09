@@ -179,9 +179,9 @@ Score answers with an LLM judge.
 
 ```
 usage: agenteval judge [-h] --rubric RUBRIC [--db DB] [--model MODEL]
-                       [--provider {groq,ollama,openai,openrouter}] [--base-url BASE_URL]
-                       [--api-key-env API_KEY_ENV] [--price INPUT OUTPUT] [--sample N]
-                       [--no-cache] [--rpm RPM] [--concurrency CONCURRENCY]
+                       [--provider {anthropic,groq,ollama,openai,openrouter}]
+                       [--base-url BASE_URL] [--api-key-env API_KEY_ENV] [--price INPUT OUTPUT]
+                       [--sample N] [--no-cache] [--rpm RPM] [--concurrency CONCURRENCY]
                        experiment_id
 
 Score a saved experiment's answers with an LLM judge.
@@ -195,7 +195,9 @@ options:
                         path of your own rubric .toml file
   --db DB
   --model MODEL         the judge; a different, larger model than the agent's is the usual choice
-  --provider {groq,ollama,openai,openrouter}
+                        (default: llama-3.3-70b-versatile, or claude-sonnet-5-5 with --provider
+                        anthropic)
+  --provider {anthropic,groq,ollama,openai,openrouter}
   --base-url BASE_URL   any other OpenAI-compatible endpoint (Azure, vLLM, a gateway)
   --api-key-env API_KEY_ENV
                         the environment variable holding that endpoint's key
