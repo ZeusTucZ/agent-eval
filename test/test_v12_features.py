@@ -69,3 +69,44 @@ def test_the_judge_command_defaults_to_a_claude_model_for_the_anthropic_provider
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(SystemExit, match="ANTHROPIC_API_KEY"):
         judge.main(["1", "--rubric", "correctness", "--provider", "anthropic"])
+
+# --- Live OpenTelemetry spans ---
+
+def test_openinference_and_genai_spans_become_steps_of_the_running_trial():
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.trace import Status, StatusCode
+
+    from agenteval import evaluate
+    from agenteval.integrations.otel import instrument
+
+    provider = TracerProvider()
+    instrument(provider)
+    tracer = provider.get_tracer("my-framework")
+
+    def agent(question: str) -> str:
+        with tracer.start_as_current_span("agent run"):
+            with tracer.start_as_current_span("ChatOpenAI", attributes={
+                    "openinference.span.kind": "LLM", "llm.model_name": "gpt-4o-mini",
+                    "llm.token_count.prompt": 120, "llm.token_count.completion": 9}):
+                pass
+            with tracer.start_as_current_span("execute_tool lookup", attributes={
+                    "gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": "lookup",
+                    "gen_ai.tool.call.arguments": '{"q": "warranty"}', "gen_ai.tool.call.result": "3 years"}):
+                pass
+            with tracer.start_as_current_span("execute_tool broken", attributes={
+                    "gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": "broken"}) as span:
+                span.set_status(Status(StatusCode.ERROR, "timed out"))
+        return "3 years"
+
+    with tracer.start_as_current_span("outside an evaluation", attributes={"openinference.span.kind": "LLM"}):
+        pass  # ignored: no trial is running
+
+    results = evaluate(agent, [{"input": "Warranty?", "expected_output": "3 years", "expected_tools": ["lookup"]}],
+                       model="gpt-4o-mini", price=(0.15, 0.6), attempts=1)
+    spans = results.trials[0].spans
+    assert [(s.kind, s.name, s.status) for s in spans] == [
+        ("llm", "gpt-4o-mini", "success"), ("tool", "lookup", "success"), ("tool", "broken", "error")]
+    assert (spans[0].input_tokens, spans[0].output_tokens) == (120, 9)
+    assert (spans[1].input, spans[1].output) == ('{"q": "warranty"}', "3 years")
+    assert spans[2].error_message == "timed out"
+    assert results.score("tool_selection") == 1.0 and results.cost > 0

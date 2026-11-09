@@ -36,7 +36,8 @@ server = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
 # The rag dataset's search tool. Large (ChromaDB pulls in onnxruntime), so only on request.
 rag = ["chromadb>=1.5"]
 anthropic = ["anthropic>=2.0"]  # output_config (structured outputs, effort) for the judge
-all = ["pyagenteval[gemini,server,rag,anthropic]"]
+otel = ["opentelemetry-sdk>=1.20"]  # live spans from OpenInference or GenAI-instrumented frameworks
+all = ["pyagenteval[gemini,server,rag,anthropic,otel]"]
 dev = [
     "pyagenteval[all]",
     "pytest>=8",
