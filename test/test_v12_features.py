@@ -278,3 +278,58 @@ def test_redaction_covers_every_message_of_a_conversation():
     trial = Trial(id=1, case_id=1, attempt=1, output="ok",
                   transcript=[{"role": "user", "content": "I'm ana@example.com"}, {"role": "assistant", "content": "ok"}])
     assert redact_trial(trial).transcript[0]["content"] == "I'm [EMAIL]"
+
+# --- Your own agent from the dashboard ---
+
+def test_the_dashboard_runs_the_project_agent_named_in_agenteval_toml(tmp_path, monkeypatch):
+    import sys
+
+    from fastapi.testclient import TestClient
+
+    from agenteval import storage, ui
+    from agenteval.api import app
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delitem(sys.modules, "team_agent", raising=False)
+    (tmp_path / "team_agent.py").write_text("def answer(question):\n    return 'Paris'\n", encoding="utf-8")
+    (tmp_path / "cases.jsonl").write_text(
+        '{"input": "Capital of France?", "expected_output": "Paris"}\n'
+        '{"input": "Capital of Spain?", "expected_output": "Madrid"}\n', encoding="utf-8")
+    (tmp_path / "agenteval.toml").write_text(
+        '[run]\nagent = "team_agent:answer"\ndataset = "cases.jsonl"\nmodel = "my-model"\nprice = [0, 0]\n',
+        encoding="utf-8")
+
+    project = ui.project_agent()
+    assert project == {"agent": "team_agent:answer", "dataset": "cases.jsonl", "model": "my-model", "price": [0, 0]}
+    monkeypatch.setenv("AGENTEVAL_PROJECT_AGENT", json.dumps(project))
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "agenteval.db"))
+    monkeypatch.setenv("API_TOKEN", "t")
+    monkeypatch.delenv("READ_ONLY", raising=False)
+    try:
+        with TestClient(app) as client:
+            assert client.get("/api/run-options").json()["project"]["agent"] == "team_agent:answer"
+            job = client.post("/api/runs", json={"agent": "project", "attempts": 1, "name": "from-ui"},
+                              headers={"X-API-Token": "t"}).json()
+            finished = client.get(f"/api/runs/{job['id']}").json()
+            assert finished["status"] == "completed", finished["error"]
+            summary = client.get(f"/api/experiments/{finished['experiment_id']}").json()
+            assert summary["name"] == "from-ui" and summary["pass_rate"] == 0.5
+    finally:
+        sys.modules.pop("team_agent", None)
+    conn = storage.connect(str(tmp_path / "agenteval.db"))
+    assert storage.load_experiment(conn, finished["experiment_id"]).config.params["agent"] == "team_agent:answer"
+
+def test_without_a_project_agent_the_api_runs_no_code_from_the_request(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from agenteval.api import app
+
+    monkeypatch.delenv("AGENTEVAL_PROJECT_AGENT", raising=False)
+    monkeypatch.setenv("API_TOKEN", "t")
+    monkeypatch.delenv("READ_ONLY", raising=False)
+    with TestClient(app) as client:
+        assert client.get("/api/run-options").json() == {"project": None}
+        refused = client.post("/api/runs", json={"agent": "project"}, headers={"X-API-Token": "t"})
+        assert refused.status_code == 400
+        named = client.post("/api/runs", json={"agent": "os:system"}, headers={"X-API-Token": "t"})
+        assert named.status_code == 422

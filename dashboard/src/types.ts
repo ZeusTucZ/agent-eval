@@ -163,7 +163,7 @@ export interface Job {
 }
 
 export interface RunRequest {
-  agent: "mock" | "groq" | "gemini";
+  agent: "mock" | "groq" | "gemini" | "project";
   dataset: "arithmetic" | "mixed" | "hard" | "extended" | "rag";
   attempts: number;
   model?: string;
@@ -173,6 +173,12 @@ export interface RunRequest {
   // rag dataset only
   top_k?: number;
   embedding?: "minilm" | "hashing";
+  // project agent only: run N of its cases
+  sample?: number;
+}
+
+export interface RunOptions {
+  project: { agent: string; dataset: string | null; model: string | null } | null;
 }
 
 export interface TrendPoint {

@@ -384,7 +384,8 @@ def list_trials(experiment_id: int, conn: Conn) -> dict:
 # ---------------------------------------------------------------------------
 
 class RunRequest(BaseModel):
-    agent: Literal["mock", "groq", "gemini"] = "mock"
+    # "project": your agent from the project's agenteval.toml (agenteval ui), never named here.
+    agent: Literal["mock", "groq", "gemini", "project"] = "mock"
     dataset: Literal["arithmetic", "mixed", "hard", "extended", "rag"] = "mixed"
     # Upper bounds keep one request from occupying the server (and the quota) for hours.
     attempts: int = Field(default=3, ge=1, le=10)
@@ -396,6 +397,17 @@ class RunRequest(BaseModel):
     # Only for the rag dataset.
     top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=MAX_TOP_K)
     embedding: Literal[EMBEDDINGS] = DEFAULT_EMBEDDING  # type: ignore[valid-type]
+    # Run N of the dataset's cases, spread across categories (project agent only).
+    sample: int | None = Field(default=None, ge=1, le=10_000)
+
+
+@app.get("/api/run-options")
+def run_options() -> dict:
+    """What the New run page can offer: the project's own agent, when `agenteval ui` was
+    started in a project with one."""
+    project = config.project_agent()
+    return {"project": None if project is None else
+            {key: project.get(key) for key in ("agent", "dataset", "model")}}
 
 
 _jobs: dict[str, dict] = {}  # in memory: a restart forgets them, but the experiments are saved
@@ -477,6 +489,9 @@ def _execute_run(job_id: str, request: RunRequest) -> None:
 
     with _run_lock:
         _set_job(job_id, status="running")
+        if request.agent == "project":
+            _execute_project_run(job_id, request)
+            return
         try:
             args = _run_args(request)
             if args.model not in PRICES:
@@ -511,6 +526,29 @@ def _execute_run(job_id: str, request: RunRequest) -> None:
             _set_job(job_id, status="failed", error=str(error))
 
 
+def _execute_project_run(job_id: str, request: RunRequest) -> None:
+    """The project's agent, run exactly as `agenteval run` would run it from the project."""
+    from agenteval import run
+
+    project = config.project_agent() or {}
+    argv = ["--agent", str(project["agent"]), "--db", config.database_path(), "--name", request.name,
+            "--attempts", str(request.attempts), "--quiet"]
+    for option in ("dataset", "model"):
+        if project.get(option):
+            argv += [f"--{option}", str(project[option])]
+    if project.get("price"):
+        argv += ["--price", *(str(value) for value in project["price"])]
+    if request.sample:
+        argv += ["--sample", str(request.sample)]
+    try:
+        experiment_id = run.main(argv)
+        _set_job(job_id, status="completed", experiment_id=experiment_id)
+    except SystemExit as stop:  # run's own errors ("No price for ...") arrive as SystemExit
+        _set_job(job_id, status="failed", error=str(stop.code))
+    except BaseException as error:  # noqa: BLE001 - a failed job must report, not crash the worker
+        _set_job(job_id, status="failed", error=str(error))
+
+
 @app.post("/api/runs", status_code=202)
 def create_run(
     request: RunRequest,
@@ -519,6 +557,16 @@ def create_run(
 ) -> dict:
     """Validate, queue the run, and answer immediately with the job id."""
     from agenteval.run import AGENT_DEFAULTS
+
+    if request.agent == "project":
+        if config.project_agent() is None:
+            raise HTTPException(status_code=400, detail="No project agent: start the dashboard with `agenteval ui` "
+                                                        "in a project whose agenteval.toml names one.")
+        if _waiting_jobs() >= MAX_WAITING_JOBS:
+            raise HTTPException(status_code=429, detail="Too many runs waiting; try again when one finishes.")
+        job = _new_job(request)
+        background_tasks.add_task(_execute_run, job["id"], request)
+        return job
 
     if request.agent == "mock" and request.dataset != "arithmetic":
         # Same rule as the CLI: the mock only answers arithmetic questions.
