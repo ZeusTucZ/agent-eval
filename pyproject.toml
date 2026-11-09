@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # (as pyyaml installs `yaml`): pip install pyagenteval, then `import agenteval` and run
 # `agenteval`. 1.0.0 was published as zeustucz-agenteval.
 name = "pyagenteval"
-version = "1.1.0"
+version = "1.2.0"
 description = "Run your LLM agent many times, trace every step, and find out why it fails: correctness, tool use, latency, cost, retries and regressions."
 readme = "README.md"
 license = "MIT"

@@ -48,6 +48,7 @@ Works inside a running event loop (Jupyter) by running in its own thread. `aeval
 | `to_records()`, `to_pandas()` | one row per trial with every score (pandas is optional) |
 | `compare(baseline)` | is this run better than `baseline`, as `agenteval compare` |
 | `check(min_pass_rate=, min_scores=, max_cost=, max_failures=)` | raise `AssertionError` listing what fell short; returns the results otherwise |
+| `push(url, token)` | send the experiment to a shared agenteval server; returns its id there |
 | `experiment`, `trials`, `scores`, `cases` | the raw objects |
 
 In Jupyter, a `Results` displays as the HTML report.
@@ -92,3 +93,22 @@ as_scorer(lambda case, trial: 0.5, name="half")   # name a lambda
 
 A trial has `output`, `failure_type`, `attempt`, `case_id` and `spans`; each span has `kind`
 (`"llm"` or `"tool"`), `name`, `status`, `input`, `output`, `error_type`, tokens and times.
+
+## Simulated users
+
+`agenteval.simulate.UserSimulator(model, provider="openai", client=None, base_url=None,
+api_key_env=None)` plays the user in cases with `simulated_user`; `provider` is
+`"anthropic"` or an OpenAI-compatible one. Pass it as `evaluate(..., user_simulator=...)`.
+Any `(case, messages) -> str | None` function, sync or async, works in its place.
+
+## OpenTelemetry
+
+`agenteval.integrations.otel.instrument(tracer_provider=None)` adds a span processor that
+records model and tool spans (OpenInference or GenAI conventions) as the running trial's
+steps. With no SDK tracer provider set, it creates one and makes it global.
+
+## Production
+
+`agenteval.monitor.Monitor(db="production.db", *, model, sample_rate=0.1, price=None,
+redact=False, name="production")`; decorate a function with `@monitor.watch`, and call
+`monitor.flush()` to wait for pending writes. See [Watch it in production](../guides/production.md).

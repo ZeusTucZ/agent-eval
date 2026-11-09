@@ -55,6 +55,25 @@ client = wrap_anthropic(AsyncAnthropic())  # or Anthropic()
 Every `client.messages.create(...)` becomes a model step, its input tokens including any read
 from or written to the prompt cache.
 
+## Any framework that emits OpenTelemetry
+
+LlamaIndex, the OpenAI Agents SDK, CrewAI, DSPy, Haystack and smolagents are instrumented by
+[OpenInference](https://github.com/Arize-ai/openinference); PydanticAI and Semantic Kernel
+emit OpenTelemetry's GenAI conventions. Either way, one line records their steps:
+
+```python
+from agenteval.integrations.otel import instrument
+from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor
+
+instrument()                           # agenteval reads the spans while it evaluates
+OpenAIAgentsInstrumentor().instrument()  # your framework's instrumentation, as usual
+```
+
+Needs `pip install "pyagenteval[otel]"`. Every model span becomes a model step (model,
+tokens, duration) and every tool span a tool step (arguments, result, error). Outside an
+evaluation nothing changes, and your spans still reach your own exporters. Don't also wrap
+the same client with `wrap_openai`, or each call counts twice.
+
 ## Replay responses instead of paying again
 
 Both wrappers take a cache:
@@ -97,6 +116,19 @@ async def answer(messages: list[dict]) -> str:
 `messages` is `[{"role": "user" | "assistant", "content": ...}]`, ending with the newest user
 turn. Your replies are added to it, the last reply is the answer that's scored, and the whole
 transcript is saved and shown in reports, the dashboard and to the LLM judge.
+
+With a [simulated user](datasets.md#simulated-users), another model writes the user's turns
+in reply to yours:
+
+```python
+from agenteval.simulate import UserSimulator
+
+evaluate(answer, "conversations.jsonl", model="gpt-4o-mini",
+         user_simulator=UserSimulator("claude-haiku-5-5", provider="anthropic"))
+```
+
+From the command line: `agenteval run --simulate-users claude-haiku-5-5 --simulator-provider
+anthropic`. Any function `(case, messages) -> str | None` works as a simulator too.
 
 ## An object with a run method
 

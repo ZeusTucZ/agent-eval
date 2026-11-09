@@ -4,6 +4,40 @@ All notable changes. Versions follow [semantic versioning](https://semver.org): 
 command-line options, the Python API and the database format only change in ways that keep
 working for existing users; anything else waits for 2.0 and is announced here first.
 
+## 1.2.0
+
+### Claude, everywhere
+- `agenteval judge --provider anthropic` uses Claude as the judge (`claude-sonnet-5-5` by
+  default), with the verdict's form enforced by structured outputs.
+- Prices for current Claude models; the `anthropic` template uses `claude-opus-5-5`.
+  New extras: `[anthropic]`, `[otel]`.
+
+### Any framework
+- `agenteval.integrations.otel.instrument()` records steps live from OpenTelemetry spans:
+  LlamaIndex, the OpenAI Agents SDK, CrewAI, DSPy and others through OpenInference;
+  PydanticAI and Semantic Kernel through the GenAI conventions.
+
+### Conversations that react
+- Simulated users: a case with `simulated_user` (and `max_turns`) has another model play the
+  user, replying to what the agent says. `evaluate(user_simulator=...)`,
+  `agenteval run --simulate-users MODEL`.
+
+### Teams and production
+- `agenteval push` and `results.push()` send experiments to a shared agenteval server
+  (`POST /api/experiments`), so a team's runs share one dashboard.
+- `agenteval.monitor.Monitor` samples real requests in production, records them as trials of
+  a daily experiment and scores them; judge them later with the reference-free rubrics.
+- The dashboard's New run offers your own agent, as configured in `agenteval.toml`, when
+  started with `agenteval ui`.
+
+### Docs
+- A tutorial from first run to production, and the home page, quickstart and tutorial in
+  Spanish.
+
+### Fixes
+- `--redact` now also redacts a conversation's transcript.
+- CI actions moved to versions that run on Node 24.
+
 ## 1.1.0
 
 ### How the agent got there

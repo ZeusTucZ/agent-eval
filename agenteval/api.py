@@ -67,7 +67,7 @@ async def _lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="agenteval API", version="1.1.0", lifespan=_lifespan)
+app = FastAPI(title="agenteval API", version="1.2.0", lifespan=_lifespan)
 
 
 # ---------------------------------------------------------------------------

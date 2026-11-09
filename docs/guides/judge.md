@@ -7,10 +7,12 @@ pass or fail verdict on each answer of a saved experiment.
 agenteval judge 12 --rubric groundedness
 ```
 
-- **Model and provider**: `llama-3.3-70b-versatile` on Groq by default. `--provider openai`,
-  `--provider openrouter` (which reaches Anthropic, Google and many others), `--provider ollama`,
-  or any OpenAI-compatible endpoint with `--base-url` and `--api-key-env`. A different, larger
-  model than the agent's is the usual choice.
+- **Model and provider**: `llama-3.3-70b-versatile` on Groq by default. `--provider anthropic`
+  uses Claude (`claude-sonnet-5-5` unless `--model` says otherwise; needs `ANTHROPIC_API_KEY`
+  and `pip install "pyagenteval[anthropic]"`), with the verdict's form enforced by structured
+  outputs. `--provider openai`, `--provider openrouter`, `--provider ollama`, or any
+  OpenAI-compatible endpoint with `--base-url` and `--api-key-env` work too. A different,
+  larger model than the agent's is the usual choice.
 - **Cost**: `--sample 100` judges a fixed random sample. Verdicts are cached by the exact
   request, so judging the same answers again costs nothing (`--no-cache` to ask anyway).
 - **Prompt injection**: the judge is told that everything it evaluates is data, not

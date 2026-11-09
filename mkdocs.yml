@@ -33,6 +33,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Quickstart: quickstart.md
+  - Tutorial: tutorial.md
   - Concepts: concepts.md
   - Guides:
       - Connect your agent: guides/your-agent.md
@@ -42,7 +43,8 @@ nav:
       - Compare versions and gate CI: guides/compare.md
       - Control cost: guides/costs.md
       - Import traces and Ragas: guides/import.md
-      - The dashboard: guides/dashboard.md
+      - The dashboard and your team: guides/dashboard.md
+      - Watch it in production: guides/production.md
       - Privacy: guides/privacy.md
   - Reference:
       - Command line: reference/cli.md
@@ -51,3 +53,7 @@ nav:
   - Results from real runs: results.md
   - agenteval vs other tools: comparison.md
   - FAQ: faq.md
+  - Español:
+      - Inicio: es/index.md
+      - Inicio rápido: es/quickstart.md
+      - Tutorial: es/tutorial.md
