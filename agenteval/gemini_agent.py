@@ -99,7 +99,7 @@ class GeminiAgent:
         )
 
     async def run(self, case: EvaluationCase, attempt: int, tracer: Tracer) -> str:
-        if case.turns:
+        if case.turns or case.simulated_user:
             raise AgentFailure("the built-in agents answer single questions; evaluate conversations with your "
                                "own agent (a function taking `messages`)")
         if self.quota_exhausted:

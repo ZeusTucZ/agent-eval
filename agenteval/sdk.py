@@ -103,9 +103,10 @@ class FunctionAgent:
     """Runs a plain function as an agent: it gets the question (or, if it has a parameter
     named `case`, the whole EvaluationCase) and returns the answer."""
 
-    def __init__(self, function: Callable[..., Any], model: str):
+    def __init__(self, function: Callable[..., Any], model: str, user_simulator: Callable | None = None):
         self.function = function
         self.model = model
+        self.user_simulator = user_simulator  # plays the user in cases with `simulated_user`
         parameters = inspect.signature(function).parameters
         self.wants_case = "case" in parameters
         self.wants_messages = "messages" in parameters
@@ -121,7 +122,9 @@ class FunctionAgent:
     async def run(self, case: EvaluationCase, attempt: int, tracer: Tracer) -> str:
         token = _active.set(_Trial(tracer, self.model, attempt))
         try:
-            if case.turns:
+            if case.simulated_user:
+                answer = await self._simulate(case, tracer)
+            elif case.turns:
                 answer = await self._converse(case.turns, tracer)
             else:
                 answer = await self._call(case if self.wants_case else case.input)
@@ -145,6 +148,34 @@ class FunctionAgent:
             messages.append({"role": "user", "content": turn})
             reply = await self._call(list(messages))
             messages.append({"role": "assistant", "content": "" if reply is None else str(reply)})
+        return reply
+
+    async def _simulate(self, case: EvaluationCase, tracer: Tracer) -> str | None:
+        """A conversation with a simulated user, who opens with the case's input."""
+        from agenteval.simulate import DEFAULT_MAX_TURNS
+
+        if self.user_simulator is None:
+            raise AgentFailure("this case has a simulated user: pass user_simulator= to evaluate(), "
+                               "or --simulate-users MODEL to agenteval run")
+        if not self.wants_messages:
+            raise AgentFailure("this case is a conversation: give your agent a parameter named `messages`")
+        messages: list[dict[str, str]] = []
+        tracer.transcript = messages
+        reply, next_message = None, case.input
+        for _ in range(case.max_turns or DEFAULT_MAX_TURNS):
+            messages.append({"role": "user", "content": next_message})
+            reply = await self._call(list(messages))
+            messages.append({"role": "assistant", "content": "" if reply is None else str(reply)})
+            # The simulator isn't the agent: its calls (even ones a tracing integration sees)
+            # stay out of the trial's steps and cost.
+            token = _active.set(None)
+            try:
+                result = self.user_simulator(case, list(messages))
+                next_message = await result if inspect.isawaitable(result) else result
+            finally:
+                _active.reset(token)
+            if not next_message:
+                break
         return reply
 
 def load_agent(spec: str, model: str) -> tuple[Agent, str]:

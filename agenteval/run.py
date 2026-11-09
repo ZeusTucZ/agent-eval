@@ -113,6 +113,11 @@ def build_custom(args) -> tuple[Agent, AgentConfig]:
     # The source hash makes any edit to the agent's module a new version, so agenteval.compare
     # can tell two versions of your agent apart even when the model and prompt are the same.
     config = AgentConfig(model=args.model, prompt="", params={"agent": args.agent, "source": source_hash})
+    if getattr(args, "simulate_users", None):
+        from agenteval.simulate import UserSimulator
+
+        agent.user_simulator = UserSimulator(args.simulate_users, provider=args.simulator_provider)  # type: ignore[attr-defined]
+        config.params["user_simulator"] = f"{args.simulator_provider}:{args.simulate_users}"
     return agent, config
 
 def is_custom_agent(name: str) -> bool:
@@ -198,6 +203,13 @@ def main(argv: list[str] | None = None) -> int:
     rag.add_argument("--embedding", choices=EMBEDDINGS, default=DEFAULT_EMBEDDING,
                      help="minilm: semantic, downloaded on first use; hashing: word matching, no download")
 
+    own = parser.add_argument_group("your own agent")
+    own.add_argument("--simulate-users", metavar="MODEL",
+                        help="the model that plays the user in cases with simulated_user")
+    own.add_argument("--simulator-provider", default="openai",
+                        choices=["anthropic", "groq", "ollama", "openai", "openrouter"],
+                        help="where --simulate-users runs (default openai)")
+
     control = parser.add_argument_group("cost, scope and storage")
     control.add_argument("--max-cost", type=float, metavar="USD",
                          help="stop starting trials once this much has been spent; resume later with --resume")
@@ -246,6 +258,9 @@ def main(argv: list[str] | None = None) -> int:
         custom_scorers = [load_scorer(spec) for spec in args.scorer]
     except (ValueError, ImportError) as error:
         raise SystemExit(str(error)) from None
+    if any(case.simulated_user for case in dataset) and not args.simulate_users:
+        raise SystemExit("This dataset has cases with a simulated user: pass --simulate-users MODEL "
+                         "(and --simulator-provider) for the model that plays them.")
     agent, config = build_custom(args) if custom else BUILDERS[args.agent](args)
 
     plan = RunPlan(

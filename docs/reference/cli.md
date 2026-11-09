@@ -36,9 +36,10 @@ usage: agenteval run [-h] [--name NAME] [--db DB] [--agent AGENT] [--model MODEL
                      [--hallucination-rate HALLUCINATION_RATE] [--hang-rate HANG_RATE]
                      [--seed SEED] [--max-steps MAX_STEPS] [--temperature TEMPERATURE]
                      [--prompt-file PROMPT_FILE] [--rpm RPM] [--tpm TPM] [--top-k K]
-                     [--embedding {minilm,hashing}] [--max-cost USD] [--sample N]
-                     [--sample-seed SAMPLE_SEED] [--resume ID] [--scorer MODULE:FUNCTION]
-                     [--redact] [--quiet]
+                     [--embedding {minilm,hashing}] [--simulate-users MODEL]
+                     [--simulator-provider {anthropic,groq,ollama,openai,openrouter}]
+                     [--max-cost USD] [--sample N] [--sample-seed SAMPLE_SEED] [--resume ID]
+                     [--scorer MODULE:FUNCTION] [--redact] [--quiet]
 
 Run an agent over a dataset and save the results.
 
@@ -82,6 +83,12 @@ rag dataset (needs: pip install -e ".[rag]"):
   --embedding {minilm,hashing}
                         minilm: semantic, downloaded on first use; hashing: word matching, no
                         download
+
+your own agent:
+  --simulate-users MODEL
+                        the model that plays the user in cases with simulated_user
+  --simulator-provider {anthropic,groq,ollama,openai,openrouter}
+                        where --simulate-users runs (default openai)
 
 cost, scope and storage:
   --max-cost USD        stop starting trials once this much has been spent; resume later with

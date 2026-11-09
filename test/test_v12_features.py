@@ -110,3 +110,68 @@ def test_openinference_and_genai_spans_become_steps_of_the_running_trial():
     assert (spans[1].input, spans[1].output) == ('{"q": "warranty"}', "3 years")
     assert spans[2].error_message == "timed out"
     assert results.score("tool_selection") == 1.0 and results.cost > 0
+
+# --- Simulated users ---
+
+REFUND_CASE = {"input": "I want my money back.", "expected_output": "refund approved",
+               "simulated_user": "Bought headphones 10 days ago (order 1234); they broke. Wants a refund.",
+               "max_turns": 4}
+
+def support_agent(messages):
+    last = messages[-1]["content"]
+    if "1234" in last:
+        return "refund approved"
+    return "Sure, what's your order number?"
+
+def test_a_simulated_user_answers_the_agent_until_it_is_done():
+    from agenteval import evaluate
+
+    seen = []
+
+    def simulator(case, messages):
+        seen.append([m["role"] for m in messages])
+        return None if messages[-1]["content"] == "refund approved" else "It's order 1234."
+
+    results = evaluate(support_agent, [REFUND_CASE], model="m", price=(0, 0), attempts=1, user_simulator=simulator)
+    trial = results.trials[0]
+    assert trial.output == "refund approved" and results.pass_rate == 1.0
+    assert [m["content"] for m in trial.transcript] == [
+        "I want my money back.", "Sure, what's your order number?", "It's order 1234.", "refund approved"]
+    assert seen == [["user", "assistant"], ["user", "assistant", "user", "assistant"]]
+    assert results.experiment.config.params["user_simulator"] == "simulator"
+
+def test_the_conversation_stops_at_max_turns_and_without_a_simulator_it_fails_clearly():
+    from agenteval import evaluate
+
+    stubborn = evaluate(support_agent, [REFUND_CASE], model="m", price=(0, 0), attempts=1,
+                        user_simulator=lambda case, messages: "No.")
+    assert sum(m["role"] == "user" for m in stubborn.trials[0].transcript) == 4
+
+    with pytest.raises(ValueError, match="user_simulator"):
+        evaluate(support_agent, [REFUND_CASE], model="m", price=(0, 0), attempts=1)
+
+def test_the_simulator_model_plays_the_user_and_says_done(monkeypatch):
+    from agenteval.models import EvaluationCase
+    from agenteval.simulate import UserSimulator, parse_reply, simulator_prompt
+
+    class Messages:
+        async def create(self, **request):
+            self.request = request
+            return SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text="DONE.")])
+
+    messages = Messages()
+    simulator = UserSimulator("claude-haiku-5-5", provider="anthropic", client=SimpleNamespace(messages=messages))
+    case = EvaluationCase(id=1, **REFUND_CASE)
+    history = [{"role": "user", "content": "I want my money back."}, {"role": "assistant", "content": "Done!"}]
+
+    assert asyncio.run(simulator(case, history)) is None
+    assert "order 1234" in messages.request["messages"][0]["content"] and "temperature" not in messages.request
+    assert "Assistant: Done!" in simulator_prompt(case, history)
+    assert parse_reply("  Here it is: 1234 ") == "Here it is: 1234"
+
+def test_simulated_cases_keep_older_dataset_versions():
+    from agenteval.models import EvaluationCase, dataset_version
+
+    case = EvaluationCase(id=1, input="q", expected_output="a")
+    assert dataset_version([case]) == dataset_version([EvaluationCase(id=1, input="q", expected_output="a",
+                                                                       simulated_user=None)])
