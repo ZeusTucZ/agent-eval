@@ -21,6 +21,8 @@ A dataset is a JSONL file: one case per line.
 | `expected_trajectory` | no | tool names in the order they should be called, for `trajectory_order` |
 | `max_tool_calls` | no | how many tool calls the task needs, for `step_efficiency` |
 | `turns` | no | a conversation: the user's messages in order (see below) |
+| `simulated_user` | no | a conversation with a simulated user: who they are and what they want |
+| `max_turns` | no | the most user messages in a simulated conversation (default 5) |
 
 Errors in the file name the line they're on.
 
@@ -34,6 +36,20 @@ Errors in the file name the line they're on.
 The agent answers each turn in turn ([how it gets them](your-agent.md#conversations)); the
 answer to the last one is checked against `expected_output`, and `must_not_contain` is
 checked against every reply. `input` defaults to the last turn.
+
+## Simulated users
+
+Written turns can't react to what the agent says. A simulated user can:
+
+```json
+{"input": "My headphones broke.", "expected_output": "refund approved", "max_turns": 4,
+ "simulated_user": "Bought them 10 days ago, order 1234. Wants a refund, not a replacement. Gives details only when asked."}
+```
+
+`input` is the user's first message. After each reply, a model playing this user writes the
+next message, or ends the conversation once the goal is met or clearly can't be. The agent's
+last reply is scored. Pass the simulator to `evaluate(user_simulator=...)` or `agenteval run
+--simulate-users MODEL`; its calls aren't counted in the agent's cost.
 
 ## How many cases?
 

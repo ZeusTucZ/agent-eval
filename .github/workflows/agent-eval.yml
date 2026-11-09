@@ -78,10 +78,10 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: steps.key.outputs.skip != 'true'
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: steps.key.outputs.skip != 'true'
         with:
           python-version: "3.12"
@@ -126,7 +126,7 @@ jobs:
           cat report.md >> "$GITHUB_STEP_SUMMARY"
 
       # Everything needed to see why a check came out as it did, including full error messages.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always() && steps.key.outputs.skip != 'true'
         with:
           name: agent-eval-results

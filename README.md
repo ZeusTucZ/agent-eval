@@ -82,19 +82,21 @@ LangChain and LangGraph agents need one callback. The same works from the comman
 | | |
 |---|---|
 | **Run** | your agent, or built-in Groq, Gemini and fault-injecting mock agents; `--sample`, `--max-cost`, `--resume`, `--redact` |
-| **Connect** | a function with `llm_call` and `tool`, `wrap_openai`, `wrap_anthropic`, LangChain/LangGraph callbacks; `agenteval init --template` for each; a response cache to re-run for free |
+| **Connect** | a function with `llm_call` and `tool`, `wrap_openai`, `wrap_anthropic`, LangChain/LangGraph callbacks, any OpenTelemetry-instrumented framework (LlamaIndex, OpenAI Agents SDK, CrewAI, PydanticAI...); `agenteval init --template`; a response cache to re-run for free |
 | **Score** | exact match, tool selection / arguments / execution, trajectory order, step efficiency, repeated calls, tool faithfulness, retrieval recall, forbidden text, your own scorers, and an LLM judge (correctness, groundedness, answer and context relevance, your own rubrics) |
-| **Datasets** | your JSONL file (single questions or multi-turn conversations), cases generated from your documents (`agenteval generate`), or built-in `mixed`, `hard` (55 cases), `extended` (200 cases) and `rag` (45 cases over a document corpus) |
+| **Datasets** | your JSONL file (single questions, written conversations, or simulated users), cases generated from your documents (`agenteval generate`), or built-in `mixed`, `hard` (55 cases), `extended` (200 cases) and `rag` (45 cases over a document corpus) |
 | **Read** | reports as text, JSON, Markdown, HTML and CSV; a local dashboard to browse, compare, label and follow trends |
 | **Decide** | `compare`, `power`, `gate`, a GitHub Action, and `results.check()` in pytest |
+| **Share and watch** | `agenteval push` to your team's server; `Monitor` samples and scores production traffic |
 | **Bring data** | import recorded traces, OpenTelemetry (OpenInference or GenAI) spans or Ragas samples; export to Ragas |
 
 ## Documentation
 
-**[zeustucz.github.io/agent-eval](https://zeustucz.github.io/agent-eval/)**: quickstart,
+**[zeustucz.github.io/agent-eval](https://zeustucz.github.io/agent-eval/)**: quickstart, a
+[tutorial](https://zeustucz.github.io/agent-eval/tutorial/) from first run to production,
 guides to connecting your agent, writing datasets, the metrics, the judge, comparing versions,
 cost and privacy, and the full command-line and Python reference. The same pages are in
-[`docs/`](docs/).
+[`docs/`](docs/). **En español**: [inicio, inicio rápido y tutorial](https://zeustucz.github.io/agent-eval/es/).
 
 ## Live demo
 

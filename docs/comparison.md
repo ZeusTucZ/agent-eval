@@ -29,9 +29,8 @@ current details.
 
 ## What agenteval doesn't do
 
-- Simulated users: a conversation's user turns are written in the dataset, not generated
-  in reply to the agent.
 - Hosting: it runs on your machine or your server; there is no managed service.
-- Tracing frameworks other than OpenAI and Anthropic clients and LangChain/LangGraph
-  automatically; others are traced by wrapping their calls with `llm_call` and `tool`, or
-  imported from their OpenTelemetry traces.
+- Hosted storage: results live in SQLite files; a team shares them by pushing to one
+  agenteval server, not through a database server.
+- Frameworks with neither OpenTelemetry instrumentation nor an integration here: those are
+  traced by wrapping their calls with `llm_call` and `tool`.

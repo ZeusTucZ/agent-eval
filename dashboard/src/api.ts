@@ -8,6 +8,7 @@ import type {
   Job,
   LabelQueue,
   Rubric,
+  RunOptions,
   RunRequest,
   Trial,
   TrendPoint,
@@ -63,6 +64,10 @@ export const api = {
 
   createRun(body: RunRequest, token: string): Promise<Job> {
     return request("/api/runs", withToken(token, { method: "POST", body: JSON.stringify(body) }));
+  },
+
+  runOptions(): Promise<RunOptions> {
+    return request("/api/run-options");
   },
 
   getRun(jobId: string): Promise<Job> {

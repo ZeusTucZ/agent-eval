@@ -46,6 +46,13 @@ class Results:
     def experiment_id(self) -> int | None:
         return self.experiment.id
 
+    def push(self, url: str, token: str) -> int:
+        """Send this experiment to a shared agenteval server (see agenteval.share); returns its
+        id there."""
+        from agenteval.share import payload, send
+
+        return int(send(url, token, payload(self.experiment, self.trials, self.scores, self.cases))["id"])
+
     @property
     def summary(self) -> dict:
         """Everything the report shows, as a dict."""
@@ -202,8 +209,10 @@ async def aevaluate(
     redact: bool = False,
     progress: bool = False,
     config: dict | None = None,
+    user_simulator: Callable | None = None,
 ) -> Results:
-    """The async form of evaluate(), for code already running an event loop."""
+    """The async form of evaluate(), for code already running an event loop. `user_simulator`
+    plays the user in cases with `simulated_user` (see agenteval.simulate)."""
     dataset_name, case_list = _to_cases(cases)
     if sample:
         case_list = sample_cases(case_list, sample)
@@ -214,7 +223,13 @@ async def aevaluate(
     if model not in prices:
         raise ValueError(f"no price for {model!r}: pass price=(input, output) in dollars per million tokens, "
                          "or price=(0, 0) if you don't track cost")
+    if user_simulator is None and any(case.simulated_user for case in case_list):
+        raise ValueError("some cases have a simulated user: pass user_simulator= (see agenteval.simulate)")
     wrapped, agent_config = _agent_and_config(agent, model, config)
+    if user_simulator is not None:
+        wrapped.user_simulator = user_simulator  # type: ignore[attr-defined]
+        agent_config.params["user_simulator"] = getattr(user_simulator, "model", None) or getattr(
+            user_simulator, "__name__", type(user_simulator).__name__)
     custom: list[Scorer] = [as_scorer(fn) for fn in scorers]
 
     plan = RunPlan(agent=wrapped, config=agent_config, dataset_name=dataset_name, cases=case_list,

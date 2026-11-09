@@ -6,7 +6,7 @@
     client = wrap_anthropic(AsyncAnthropic())
 
     async def my_agent(question: str) -> str:
-        message = await client.messages.create(model="claude-sonnet-4-5", max_tokens=1024,
+        message = await client.messages.create(model="claude-opus-5-5", max_tokens=1024,
                                                messages=[{"role": "user", "content": question}])
         return message.content[0].text
 

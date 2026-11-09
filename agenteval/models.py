@@ -30,6 +30,10 @@ class EvaluationCase(BaseModel):
     # A conversation: the user's messages in order. The agent answers each in turn and
     # expected_output is checked against its last reply.
     turns: list[str] | None = None
+    # A conversation with a simulated user: who they are and what they want. `input` is their
+    # first message; a user simulator writes each next one in reply to the agent.
+    simulated_user: str | None = None
+    max_turns: int | None = None  # user messages in a simulated conversation (default 5)
 
     @model_validator(mode="after")
     def _question(self) -> "EvaluationCase":
@@ -134,7 +138,8 @@ class Experiment(BaseModel):
 # Fields added to EvaluationCase after dataset versions were first stored. Left out of the
 # hash while unset, so adding a field doesn't make every saved experiment look like it ran
 # on a different dataset (compare and the gate refuse to compare those).
-FIELDS_ADDED_LATER = {"relevant_docs", "expected_trajectory", "max_tool_calls", "turns"}
+FIELDS_ADDED_LATER = {"relevant_docs", "expected_trajectory", "max_tool_calls", "turns", "simulated_user",
+                      "max_turns"}
 
 def dataset_version(cases: list[EvaluationCase]) -> str:
     """Content hash of a dataset: if any case changes, runs are no longer comparable."""

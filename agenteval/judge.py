@@ -175,6 +175,38 @@ def parse_verdict(text: str) -> tuple[bool, str] | None:
         return None
     return reply["verdict"] == "pass", str(reply.get("reason", ""))
 
+# The verdict's form, for providers that can enforce it (Anthropic's structured outputs).
+VERDICT_SCHEMA = {
+    "type": "object",
+    "properties": {"verdict": {"type": "string", "enum": ["pass", "fail"]}, "reason": {"type": "string"}},
+    "required": ["verdict", "reason"],
+    "additionalProperties": False,
+}
+
+ANTHROPIC = "anthropic"
+DEFAULT_MODELS = {ANTHROPIC: "claude-sonnet-5-5"}
+
+def classify_anthropic_error(error: BaseException) -> str | None:
+    import anthropic
+
+    if isinstance(error, anthropic.RateLimitError):
+        return "rate_limit"
+    if isinstance(error, anthropic.APIConnectionError):  # includes timeouts
+        return "connection_error"
+    if isinstance(error, anthropic.APIStatusError) and error.status_code >= 500:  # 529 is "overloaded"
+        return "server_error"
+    return None
+
+def anthropic_retry_after(error: BaseException) -> float | None:
+    import anthropic
+
+    if not isinstance(error, anthropic.APIStatusError):
+        return None
+    try:
+        return float(error.response.headers.get("retry-after", ""))
+    except ValueError:
+        return None
+
 class Judge:
     def __init__(
         self,
@@ -188,6 +220,7 @@ class Judge:
         cache=None,  # a storage connection: verdicts already given aren't paid for twice
     ):
         self.model = model
+        self.provider = provider
         self.retry_policy = retry_policy or RetryPolicy(max_retries=5, base_delay_s=2.0, max_delay_s=60.0)
         self.rate_limiter = RateLimiter(requests_per_minute) if requests_per_minute else None
         self.client = client or self._build_client(provider, base_url, api_key_env)
@@ -199,6 +232,13 @@ class Judge:
 
     @staticmethod
     def _build_client(provider: str, base_url: str | None = None, api_key_env: str | None = None) -> Any:
+        if provider == ANTHROPIC:
+            import anthropic
+
+            # Retries are agenteval's, so they're counted and spaced like every other call.
+            return anthropic.AsyncAnthropic(
+                api_key=os.environ[api_key_env] if api_key_env else None, base_url=base_url,
+                max_retries=0, timeout=120.0)
         import openai
 
         # Any OpenAI-compatible endpoint (Azure, vLLM, Together, a gateway) with --base-url.
@@ -228,6 +268,8 @@ class Judge:
                 return self._score(rubric, trial, *verdict)
 
         async def call() -> tuple[str, int, int]:
+            if self.provider == ANTHROPIC:
+                return await self._call_anthropic(messages)
             response = await self.client.chat.completions.create(
                 model=self.model, messages=messages, temperature=0.0, response_format={"type": "json_object"},
             )
@@ -235,10 +277,14 @@ class Judge:
             return (response.choices[0].message.content or "",
                     (usage and usage.prompt_tokens) or 0, (usage and usage.completion_tokens) or 0)
 
+        anthropic = self.provider == ANTHROPIC
         try:
             text = await call_llm_with_retries(
-                self.tracer, self.model, call, self.retry_policy, classify_openai_error,
-                Random(f"{trial.id}-{rubric.name}"), retry_after=openai_retry_after, rate_limiter=self.rate_limiter,
+                self.tracer, self.model, call, self.retry_policy,
+                classify_anthropic_error if anthropic else classify_openai_error,
+                Random(f"{trial.id}-{rubric.name}"),
+                retry_after=anthropic_retry_after if anthropic else openai_retry_after,
+                rate_limiter=self.rate_limiter,
             )
         except Exception:
             # One failed call (a quota, an outage) shouldn't throw away the verdicts already paid for.
@@ -251,6 +297,24 @@ class Judge:
         if self.cache is not None:
             storage.cache_reply(self.cache, cache_key, text)
         return self._score(rubric, trial, *verdict)
+
+    async def _call_anthropic(self, messages: list[dict[str, str]]) -> tuple[str, int, int]:
+        """Claude as the judge: the verdict's JSON form is enforced by structured outputs, and
+        effort is low because a verdict is a short judgement, not a long piece of reasoning."""
+        response = await self.client.messages.create(
+            model=self.model,
+            max_tokens=4096,
+            system=messages[0]["content"],
+            messages=[{"role": "user", "content": messages[1]["content"]}],
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": VERDICT_SCHEMA}},
+        )
+        usage = response.usage
+        input_tokens = (usage.input_tokens + (usage.cache_read_input_tokens or 0)
+                        + (usage.cache_creation_input_tokens or 0))
+        if response.stop_reason == "refusal":
+            return "", input_tokens, usage.output_tokens  # counted as an unparsed reply, not a verdict
+        text = "".join(block.text for block in response.content if block.type == "text")
+        return text, input_tokens, usage.output_tokens
 
     def _score(self, rubric: Rubric, trial: Trial, passed: bool, reason: str) -> Score:
         return Score(trial_id=trial.id, scorer=f"judge_{rubric.name}", value=1.0 if passed else 0.0,
@@ -275,9 +339,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--rubric", required=True,
                         help=f"{', '.join(sorted(RUBRICS))}, or the path of your own rubric .toml file")
     parser.add_argument("--db", default="agenteval.db")
-    parser.add_argument("--model", default="llama-3.3-70b-versatile",
-                        help="the judge; a different, larger model than the agent's is the usual choice")
-    parser.add_argument("--provider", choices=sorted(PROVIDERS), default="groq")
+    parser.add_argument("--model", help="the judge; a different, larger model than the agent's is the usual choice"
+                        " (default: llama-3.3-70b-versatile, or claude-sonnet-5-5 with --provider anthropic)")
+    parser.add_argument("--provider", choices=sorted([*PROVIDERS, ANTHROPIC]), default="groq")
     parser.add_argument("--base-url", help="any other OpenAI-compatible endpoint (Azure, vLLM, a gateway)")
     parser.add_argument("--api-key-env", help="the environment variable holding that endpoint's key")
     parser.add_argument("--price", type=float, nargs=2, metavar=("INPUT", "OUTPUT"),
@@ -287,6 +351,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--rpm", type=int, default=25, help="requests per minute to stay under; 0 = no limit")
     parser.add_argument("--concurrency", type=int, default=4)
     args = parser.parse_args(argv)
+    args.model = args.model or DEFAULT_MODELS.get(args.provider, "llama-3.3-70b-versatile")
 
     try:
         rubric = load_rubric(args.rubric)
@@ -296,7 +361,8 @@ def main(argv: list[str] | None = None) -> None:
         PRICES[args.model] = Price(input_per_million=args.price[0], output_per_million=args.price[1])
     if args.model not in PRICES:
         raise SystemExit(f"No price for {args.model!r}. Pass --price INPUT OUTPUT, or run `agenteval prices --update`.")
-    key_variable = args.api_key_env or (PROVIDERS[args.provider][1] if not args.base_url else None)
+    default_key = "ANTHROPIC_API_KEY" if args.provider == ANTHROPIC else PROVIDERS[args.provider][1]
+    key_variable = args.api_key_env or (default_key if not args.base_url else None)
     if key_variable and not os.environ.get(key_variable):
         raise SystemExit(f"Set the {key_variable} environment variable first.")
 

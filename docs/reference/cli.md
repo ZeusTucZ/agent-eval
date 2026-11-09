@@ -36,9 +36,10 @@ usage: agenteval run [-h] [--name NAME] [--db DB] [--agent AGENT] [--model MODEL
                      [--hallucination-rate HALLUCINATION_RATE] [--hang-rate HANG_RATE]
                      [--seed SEED] [--max-steps MAX_STEPS] [--temperature TEMPERATURE]
                      [--prompt-file PROMPT_FILE] [--rpm RPM] [--tpm TPM] [--top-k K]
-                     [--embedding {minilm,hashing}] [--max-cost USD] [--sample N]
-                     [--sample-seed SAMPLE_SEED] [--resume ID] [--scorer MODULE:FUNCTION]
-                     [--redact] [--quiet]
+                     [--embedding {minilm,hashing}] [--simulate-users MODEL]
+                     [--simulator-provider {anthropic,groq,ollama,openai,openrouter}]
+                     [--max-cost USD] [--sample N] [--sample-seed SAMPLE_SEED] [--resume ID]
+                     [--scorer MODULE:FUNCTION] [--redact] [--quiet]
 
 Run an agent over a dataset and save the results.
 
@@ -82,6 +83,12 @@ rag dataset (needs: pip install -e ".[rag]"):
   --embedding {minilm,hashing}
                         minilm: semantic, downloaded on first use; hashing: word matching, no
                         download
+
+your own agent:
+  --simulate-users MODEL
+                        the model that plays the user in cases with simulated_user
+  --simulator-provider {anthropic,groq,ollama,openai,openrouter}
+                        where --simulate-users runs (default openai)
 
 cost, scope and storage:
   --max-cost USD        stop starting trials once this much has been spent; resume later with
@@ -179,9 +186,9 @@ Score answers with an LLM judge.
 
 ```
 usage: agenteval judge [-h] --rubric RUBRIC [--db DB] [--model MODEL]
-                       [--provider {groq,ollama,openai,openrouter}] [--base-url BASE_URL]
-                       [--api-key-env API_KEY_ENV] [--price INPUT OUTPUT] [--sample N]
-                       [--no-cache] [--rpm RPM] [--concurrency CONCURRENCY]
+                       [--provider {anthropic,groq,ollama,openai,openrouter}]
+                       [--base-url BASE_URL] [--api-key-env API_KEY_ENV] [--price INPUT OUTPUT]
+                       [--sample N] [--no-cache] [--rpm RPM] [--concurrency CONCURRENCY]
                        experiment_id
 
 Score a saved experiment's answers with an LLM judge.
@@ -195,7 +202,9 @@ options:
                         path of your own rubric .toml file
   --db DB
   --model MODEL         the judge; a different, larger model than the agent's is the usual choice
-  --provider {groq,ollama,openai,openrouter}
+                        (default: llama-3.3-70b-versatile, or claude-sonnet-5-5 with --provider
+                        anthropic)
+  --provider {anthropic,groq,ollama,openai,openrouter}
   --base-url BASE_URL   any other OpenAI-compatible endpoint (Azure, vLLM, a gateway)
   --api-key-env API_KEY_ENV
                         the environment variable holding that endpoint's key
@@ -413,6 +422,25 @@ options:
                         jsonl: agenteval's import format; ragas: SingleTurnSample fields
   -o OUTPUT, --output OUTPUT
   --db DB
+```
+
+## push
+
+Send an experiment to your team's agenteval server.
+
+```
+usage: agenteval push [-h] [--db DB] [--to URL] [--token TOKEN] [experiment_id]
+
+Share experiments with your team: send them to an agenteval server everyone can open.
+
+positional arguments:
+  experiment_id  default: the latest experiment
+
+options:
+  -h, --help     show this help message and exit
+  --db DB
+  --to URL       the server's address (or AGENTEVAL_SERVER)
+  --token TOKEN  the server's API_TOKEN (or AGENTEVAL_TOKEN)
 ```
 
 ## delete

@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { go } from "../App";
-import type { Job, RunRequest } from "../types";
+import type { Job, RunOptions, RunRequest } from "../types";
 
 type Agent = RunRequest["agent"];
 type Dataset = RunRequest["dataset"];
@@ -25,7 +25,7 @@ const DATASETS: Record<Dataset, string> = {
 };
 
 // Models with a price in agenteval/cost.py; the API refuses any other.
-const MODELS: Record<Agent, string[]> = {
+const MODELS: Record<Exclude<Agent, "project">, string[]> = {
   mock: ["mock-llm", "mock-llm-small"],
   groq: ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "llama-3.3-70b-versatile"],
   gemini: ["gemini-2.5-flash", "gemini-2.5-flash-lite"],
@@ -48,6 +48,8 @@ export default function RunForm({ token, onTokenChange }: Props) {
   const [name, setName] = useState("");
   const [cases, setCases] = useState(100);
   const [topK, setTopK] = useState(4);
+  const [sample, setSample] = useState("");
+  const [project, setProject] = useState<RunOptions["project"]>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -58,6 +60,13 @@ export default function RunForm({ token, onTokenChange }: Props) {
     timer.current = null;
   };
   useEffect(() => stopPolling, []);
+  // Your own agent is offered when the dashboard runs in a project that names one.
+  useEffect(() => {
+    api.runOptions().then((options) => {
+      setProject(options.project);
+      if (options.project) setAgent("project");
+    }).catch(() => setProject(null));
+  }, []);
 
   function pickAgent(next: Agent) {
     setAgent(next);
@@ -84,10 +93,11 @@ export default function RunForm({ token, onTokenChange }: Props) {
       agent,
       dataset,
       attempts,
-      name: name.trim() || `${agent}-${dataset}`,
+      name: name.trim() || defaultName,
       seed: 42,
     };
-    if (model) body.model = model;
+    if (agent === "project" && Number(sample) > 0) body.sample = Number(sample);
+    if (model && agent !== "project") body.model = model;
     if (dataset === "arithmetic") body.cases = cases;
     if (dataset === "rag") body.top_k = topK;
     setSubmitting(true);
@@ -104,6 +114,10 @@ export default function RunForm({ token, onTokenChange }: Props) {
 
   const running = job !== null && (job.status === "queued" || job.status === "running");
   const defaultModel = AGENTS.find((a) => a.value === agent)?.model ?? "";
+  const defaultName = agent === "project" ? "dashboard-run" : `${agent}-${dataset}`;
+  const choices = project
+    ? [{ value: "project" as Agent, label: "Your agent", note: project.agent, model: project.model ?? "" }, ...AGENTS]
+    : AGENTS;
 
   return (
     <>
@@ -118,7 +132,7 @@ export default function RunForm({ token, onTokenChange }: Props) {
         <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
           <legend style={{ fontWeight: 500, fontSize: "0.9rem", marginBottom: 6 }}>Agent</legend>
           <div className="choice-group">
-            {AGENTS.map((option) => (
+            {choices.map((option) => (
               <label key={option.value} className="choice">
                 <input
                   type="radio"
@@ -134,17 +148,24 @@ export default function RunForm({ token, onTokenChange }: Props) {
           </div>
         </fieldset>
 
-        <label>
-          Dataset
-          <select value={dataset} onChange={(e) => setDataset(e.target.value as Dataset)}>
-            {datasetsFor(agent).map((value) => (
-              <option key={value} value={value}>
-                {DATASETS[value]}
-              </option>
-            ))}
-          </select>
-          {agent === "mock" ? <span className="hint">The mock agent only answers arithmetic.</span> : null}
-        </label>
+        {agent === "project" && project ? (
+          <p className="hint" style={{ margin: 0 }}>
+            Runs {project.agent} on {project.dataset ?? "its dataset"}
+            {project.model ? ` with ${project.model}` : ""}, as set in agenteval.toml.
+          </p>
+        ) : (
+          <label>
+            Dataset
+            <select value={dataset} onChange={(e) => setDataset(e.target.value as Dataset)}>
+              {datasetsFor(agent).map((value) => (
+                <option key={value} value={value}>
+                  {DATASETS[value]}
+                </option>
+              ))}
+            </select>
+            {agent === "mock" ? <span className="hint">The mock agent only answers arithmetic.</span> : null}
+          </label>
+        )}
 
         <label>
           API token
@@ -166,7 +187,12 @@ export default function RunForm({ token, onTokenChange }: Props) {
                 Attempts per question
                 <input type="number" min={1} max={10} value={attempts} onChange={(e) => setAttempts(Number(e.target.value))} />
               </label>
-              {dataset === "arithmetic" ? (
+              {agent === "project" ? (
+                <label>
+                  Sample of questions
+                  <input type="number" min={1} placeholder="all" value={sample} onChange={(e) => setSample(e.target.value)} />
+                </label>
+              ) : dataset === "arithmetic" ? (
                 <label>
                   Questions
                   <input type="number" min={1} max={1000} value={cases} onChange={(e) => setCases(Number(e.target.value))} />
@@ -178,22 +204,24 @@ export default function RunForm({ token, onTokenChange }: Props) {
                 </label>
               ) : null}
             </div>
-            <label>
-              Model
-              <select value={model} onChange={(e) => setModel(e.target.value)}>
-                <option value="">Default ({defaultModel})</option>
-                {MODELS[agent]
-                  .filter((m) => m !== defaultModel)
-                  .map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-              </select>
-            </label>
+            {agent !== "project" ? (
+              <label>
+                Model
+                <select value={model} onChange={(e) => setModel(e.target.value)}>
+                  <option value="">Default ({defaultModel})</option>
+                  {MODELS[agent]
+                    .filter((m) => m !== defaultModel)
+                    .map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            ) : null}
             <label>
               Name
-              <input type="text" value={name} placeholder={`${agent}-${dataset}`} onChange={(e) => setName(e.target.value)} />
+              <input type="text" value={name} placeholder={defaultName} onChange={(e) => setName(e.target.value)} />
             </label>
           </div>
         </details>

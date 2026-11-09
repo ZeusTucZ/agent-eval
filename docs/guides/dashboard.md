@@ -24,9 +24,24 @@ and handed to the browser, so actions work without typing one.
   categories that moved, and the questions that flipped, with both answers.
 - **Label answers**: one answer at a time, `p` or `f`, to check the LLM judge; the
   agreement appears once both exist.
-- **New run**: the built-in agents and datasets. Your own agents run from the command line.
+- **New run**: your own agent, when `agenteval ui` starts in a project whose `agenteval.toml`
+  names one (`[run] agent = "module:function"`), with its dataset, model and price; or the
+  built-in agents and datasets. The server only ever runs that configured agent.
 
 Every view has its own link (`#/e/3`, `#/compare/1/2`), so you can share them.
+
+## Share runs with your team
+
+Everyone evaluates on their own machine, with their own keys. To see all the runs in one
+place, deploy a server (below) with a persistent disk and `API_TOKEN` set, then push:
+
+```bash
+export AGENTEVAL_SERVER=https://evals.example.com AGENTEVAL_TOKEN=...
+agenteval push          # the latest experiment; or agenteval push 12
+```
+
+From Python: `results.push(url, token)`. The experiment arrives with its trials, scores and
+questions, under a new id, ready to compare with everyone else's.
 
 ## Deploying it
 

@@ -71,6 +71,32 @@ def _kind(attributes: dict) -> str | None:
         return "tool"
     return None
 
+def step_from_span(attributes: dict, span_name: str, duration_ms: float, error: str | None) -> dict | None:
+    """The import step (see agenteval.traces) a model or tool span stands for; None for spans
+    of other kinds, whose children are what counts."""
+    kind = _kind(attributes)
+    if kind == "llm":
+        return {
+            "kind": "llm",
+            "name": _first(attributes, "llm.model_name", "gen_ai.request.model", "gen_ai.response.model")
+            or span_name or "unknown-model",
+            "input_tokens": int(_first(attributes, "llm.token_count.prompt", "gen_ai.usage.input_tokens") or 0),
+            "output_tokens": int(_first(attributes, "llm.token_count.completion", "gen_ai.usage.output_tokens") or 0),
+            "duration_ms": duration_ms,
+            "error": error,
+        }
+    if kind == "tool":
+        return {
+            "kind": "tool",
+            "name": _first(attributes, "tool.name", "gen_ai.tool.name") or span_name or "tool",
+            "input": _first(attributes, "input.value", "tool.parameters", "gen_ai.tool.call.arguments",
+                            "tool_arguments"),
+            "output": _first(attributes, "output.value", "gen_ai.tool.call.result", "tool_response"),
+            "duration_ms": duration_ms,
+            "error": error,
+        }
+    return None
+
 def read_spans(path: Path) -> list[dict]:
     """Every span in an OTLP JSON file: one export object, or one per line."""
     text = path.read_text(encoding="utf-8").strip()
@@ -113,32 +139,11 @@ def records_from_otlp(path: Path) -> list[dict]:
 
         steps = []
         for span in sorted(spans, key=lambda s: int(s.get("startTimeUnixNano", 0))):
-            attributes = _attributes(span)
-            kind = _kind(attributes)
-            if kind is None:
-                continue
             duration_ms = (int(span.get("endTimeUnixNano", 0)) - int(span.get("startTimeUnixNano", 0))) / 1e6
             failed = (span.get("status") or {}).get("code") in (2, "STATUS_CODE_ERROR")
-            error = (span.get("status") or {}).get("message") or "error" if failed else None
-            if kind == "llm":
-                steps.append({
-                    "kind": "llm",
-                    "name": _first(attributes, "llm.model_name", "gen_ai.request.model", "gen_ai.response.model")
-                    or span.get("name", "unknown-model"),
-                    "input_tokens": int(_first(attributes, "llm.token_count.prompt", "gen_ai.usage.input_tokens") or 0),
-                    "output_tokens": int(_first(attributes, "llm.token_count.completion",
-                                                "gen_ai.usage.output_tokens") or 0),
-                    "duration_ms": duration_ms,
-                    "error": error,
-                })
-            else:
-                steps.append({
-                    "kind": "tool",
-                    "name": _first(attributes, "tool.name", "gen_ai.tool.name") or span.get("name", "tool"),
-                    "input": _first(attributes, "input.value", "tool.parameters", "gen_ai.tool.call.arguments"),
-                    "output": _first(attributes, "output.value", "gen_ai.tool.call.result"),
-                    "duration_ms": duration_ms,
-                    "error": error,
-                })
+            error = ((span.get("status") or {}).get("message") or "error") if failed else None
+            step = step_from_span(_attributes(span), span.get("name", ""), duration_ms, error)
+            if step is not None:
+                steps.append(step)
         records.append({"input": question, "output": answer, "steps": steps})
     return records

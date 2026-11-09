@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # (as pyyaml installs `yaml`): pip install pyagenteval, then `import agenteval` and run
 # `agenteval`. 1.0.0 was published as zeustucz-agenteval.
 name = "pyagenteval"
-version = "1.1.0"
+version = "1.2.0"
 description = "Run your LLM agent many times, trace every step, and find out why it fails: correctness, tool use, latency, cost, retries and regressions."
 readme = "README.md"
 license = "MIT"
@@ -35,7 +35,9 @@ gemini = ["google-genai>=1.20"]
 server = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
 # The rag dataset's search tool. Large (ChromaDB pulls in onnxruntime), so only on request.
 rag = ["chromadb>=1.5"]
-all = ["pyagenteval[gemini,server,rag]"]
+anthropic = ["anthropic>=2.0"]  # output_config (structured outputs, effort) for the judge
+otel = ["opentelemetry-sdk>=1.20"]  # live spans from OpenInference or GenAI-instrumented frameworks
+all = ["pyagenteval[gemini,server,rag,anthropic,otel]"]
 dev = [
     "pyagenteval[all]",
     "pytest>=8",

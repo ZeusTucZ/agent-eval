@@ -5,6 +5,7 @@ other machines. A token for this session is made up and handed to the browser in
 so starting runs, re-scoring and labelling work without typing one.
 """
 import argparse
+import json
 import os
 import secrets
 import threading
@@ -18,6 +19,19 @@ def find_dashboard() -> Path | None:
         if (candidate / "index.html").is_file():
             return candidate
     return None
+
+def project_agent() -> dict | None:
+    """Your agent as agenteval.toml's [run] section names it, for the dashboard's New run."""
+    from agenteval.cli import load_config
+
+    try:
+        run = load_config().get("run", {})
+    except SystemExit:
+        return None
+    agent = str(run.get("agent", ""))
+    if ":" not in agent:
+        return None
+    return {key: run[key] for key in ("agent", "dataset", "model", "price") if key in run}
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="agenteval ui", description=__doc__.split("\n\n")[0])
@@ -43,6 +57,9 @@ def main(argv: list[str] | None = None) -> None:
     os.environ.setdefault("REQUESTS_PER_CLIENT_PER_MINUTE", "0")  # it's only you
     if args.read_only:
         os.environ["READ_ONLY"] = "1"
+    project = project_agent()
+    if project is not None:
+        os.environ["AGENTEVAL_PROJECT_AGENT"] = json.dumps(project)
     token = os.environ.get("API_TOKEN") or secrets.token_urlsafe(16)
     os.environ["API_TOKEN"] = token
 

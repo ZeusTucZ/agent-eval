@@ -34,6 +34,10 @@ BUILT_IN_PRICES: dict[str, Price] = {
     "openai/gpt-oss-20b": Price(input_per_million=0.075, output_per_million=0.30),
     "openai/gpt-oss-120b": Price(input_per_million=0.15, output_per_million=0.60),
     "llama-3.3-70b-versatile": Price(input_per_million=0.59, output_per_million=0.79),
+    # Anthropic API prices as listed in October 2026 (anthropic.com/pricing).
+    "claude-opus-5-5": Price(input_per_million=4.00, output_per_million=20.00),
+    "claude-sonnet-5-5": Price(input_per_million=2.00, output_per_million=10.00),
+    "claude-haiku-5-5": Price(input_per_million=0.10, output_per_million=0.50),
 }
 
 # The built-in table, with any prices you've updated or added taking precedence.

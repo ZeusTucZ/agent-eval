@@ -77,17 +77,17 @@ def test_wrap_anthropic_records_each_message_with_its_tokens(sync):
     client = wrap_anthropic(SimpleNamespace(messages=_Messages(sync)))
 
     async def async_agent(question):
-        message = await client.messages.create(model="claude-sonnet-4-5", max_tokens=10, messages=[])
+        message = await client.messages.create(model="claude-opus-5-5", max_tokens=10, messages=[])
         return message.content[0].text
 
     def sync_agent(question):
-        return client.messages.create(model="claude-sonnet-4-5", max_tokens=10, messages=[]).content[0].text
+        return client.messages.create(model="claude-opus-5-5", max_tokens=10, messages=[]).content[0].text
 
     results = evaluate(sync_agent if sync else async_agent,
                        [{"input": "Capital of France?", "expected_output": "Paris"}],
-                       model="claude-sonnet-4-5", price=(3, 15), attempts=1)
+                       model="claude-opus-5-5", price=(4, 20), attempts=1)
     (span,) = results.trials[0].spans
-    assert (span.name, span.input_tokens, span.output_tokens) == ("claude-sonnet-4-5", 45, 7)
+    assert (span.name, span.input_tokens, span.output_tokens) == ("claude-opus-5-5", 45, 7)
     assert results.pass_rate == 1.0
 
 def otlp_span(trace, span_id, parent, name, start, end, attributes, error=False):

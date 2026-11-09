@@ -38,6 +38,22 @@ def requests_per_client_per_minute() -> int:
     return int(os.environ.get("REQUESTS_PER_CLIENT_PER_MINUTE", "120"))
 
 
+def project_agent() -> dict | None:
+    """The agent the dashboard may run besides the built-in ones: only the one configured in
+    the project's agenteval.toml, which `agenteval ui` passes here. The API never runs code
+    named in a request."""
+    import json
+
+    raw = os.environ.get("AGENTEVAL_PROJECT_AGENT")
+    if not raw:
+        return None
+    try:
+        project = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return project if isinstance(project, dict) and ":" in str(project.get("agent", "")) else None
+
+
 def demo_seed() -> bool:
     """DEMO_SEED=1 fills an empty database with example experiments when the server starts."""
     return os.environ.get("DEMO_SEED", "").lower() in ("1", "true", "yes")
